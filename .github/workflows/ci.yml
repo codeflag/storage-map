@@ -118,4 +118,8 @@ jobs:
       - run: cargo about generate about.hbs --locked -o THIRD_PARTY_LICENSES.md
       - run: cargo build --locked --release
       - run: cargo deb --no-build --locked
-      - run: cargo generate-rpm
+      - name: Build the RPM
+        run: |
+          # RPM verbietet "-" in der Version. "~" sortiert eine Vorabversion vor die endgueltige.
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          cargo generate-rpm --set-metadata "version = \"${version//-/\~}\""

@@ -176,7 +176,12 @@ jobs:
           test -x /usr/bin/storage-map
           test -f /usr/share/applications/storage-map.desktop
           test -f /usr/share/icons/hicolor/scalable/apps/storage-map.svg
-          test -f /usr/share/man/man1/storage-map.1 || test -f /usr/share/man/man1/storage-map.1.gz
+          # Container-Abbilder lassen Handbuchseiten beim Installieren weg. Deshalb zaehlt hier der Paketinhalt.
+          if command -v dpkg-deb >/dev/null; then
+            dpkg-deb -c ./dist/*x86_64.deb | grep -q 'man1/storage-map.1'
+          else
+            rpm -qlp ./dist/*x86_64.rpm | grep -q 'man1/storage-map.1'
+          fi
 
   publish:
     name: Publish
