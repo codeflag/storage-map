@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Storage Map
+GenericName=Disk Usage Analyzer
+GenericName[de]=Speicherplatz-Analyse
+Comment=See what fills your drive and clean it up
+Comment[de]=Sehen, womit das Laufwerk gefüllt ist, und aufräumen
+Exec=storage-map
+Icon=storage-map
+Terminal=false
+Categories=System;Filesystem;Utility;
+Keywords=disk;usage;storage;duplicates;cleanup;treemap;

@@ -1,0 +1,60 @@
+.TH STORAGE-MAP 1 "2026" "storage-map" "User Commands"
+.SH NAME
+storage-map \- see what fills a drive and clean it up
+.SH SYNOPSIS
+.B storage-map
+[\fIOPTION\fR]...
+.SH DESCRIPTION
+Storage Map shows the contents of a drive as a treemap and lists large files,
+duplicates, old files, caches and build folders. Without options it opens its
+user interface in a browser window.
+.PP
+Scans read names, sizes and dates. Files are only read during a duplicate search.
+Nothing is removed without confirmation, and system folders are protected.
+.SH OPTIONS
+.TP
+.BI \-\-scan " PATH"
+Scan without a user interface and add the result to the history.
+.TP
+.B \-\-mcp
+Run as a Model Context Protocol server over stdio. Access is read-only until
+changed in the user interface.
+.TP
+.B \-\-no\-open
+Do not open a window, print the address instead.
+.TP
+.BI \-\-port " N"
+Use a fixed port. The default is 47811.
+.TP
+.BI \-\-token " T"
+Use a fixed access token instead of a random one.
+.TP
+.BI \-\-data\-dir " PATH"
+Keep scans, history and settings in this folder.
+.TP
+.B \-\-demo
+Show invented drives. Nothing is read or deleted.
+.TP
+.BI \-\-demo\-scale " N"
+Demo with N times as many files.
+.TP
+.BI \-\-sandbox " PATH"
+Real scan and cleanup, limited to this test folder.
+.TP
+.BI \-\-make\-fixture " DIR"
+Create a test folder with known contents.
+.TP
+.BR \-V ", " \-\-version
+Print the version.
+.TP
+.BR \-h ", " \-\-help
+Print help.
+.SH FILES
+.TP
+.I ~/.local/share/storage-map/
+Scans, history and the log of MCP calls. Follows XDG_DATA_HOME.
+.TP
+.I ~/.config/storage-map/config.json
+Settings. Follows XDG_CONFIG_HOME.
+.SH SEE ALSO
+Project page: https://github.com/codeflag/storage-map

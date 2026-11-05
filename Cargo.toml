@@ -1,0 +1,87 @@
+[package]
+name = "storage-map"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+resolver = "3"
+description = "See what fills your drive: treemap, duplicate finder and cleanup tool for Windows and Linux, with an optional MCP server"
+license = "MIT"
+repository = "https://github.com/codeflag/storage-map"
+readme = "README.md"
+keywords = ["disk-usage", "treemap", "duplicates", "cleanup", "mcp"]
+categories = ["filesystem", "visualization"]
+build = "build.rs"
+include = ["src/**", "ui/**", "assets/**", "packaging/**", "tests/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[[bin]]
+name = "storage-map"
+path = "src/main.rs"
+
+[dependencies]
+tiny_http = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+blake3 = { version = "1", default-features = false, features = ["pure", "std"] }
+lz4_flex = { version = "0.11", default-features = false, features = ["frame"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[package.metadata.deb]
+name = "storage-map"
+maintainer = "Storage Map contributors"
+copyright = "Storage Map contributors"
+license-file = ["LICENSE", "0"]
+extended-description = "Storage Map shows what fills a drive as a treemap and helps you clean it up: large files, duplicates, old files, build folders and caches. It runs locally and can also serve its results to AI clients over MCP."
+section = "utils"
+priority = "optional"
+depends = ""
+recommends = "xdg-utils"
+assets = [
+    ["target/release/storage-map", "usr/bin/", "755"],
+    ["packaging/linux/storage-map.desktop", "usr/share/applications/", "644"],
+    ["ui/favicon.svg", "usr/share/icons/hicolor/scalable/apps/storage-map.svg", "644"],
+    ["packaging/linux/storage-map.1", "usr/share/man/man1/", "644"],
+    ["README.md", "usr/share/doc/storage-map/", "644"],
+    ["THIRD_PARTY_LICENSES.md", "usr/share/doc/storage-map/", "644"],
+]
+
+[package.metadata.generate-rpm]
+summary = "See what fills your drive: treemap, duplicate finder and cleanup tool"
+license = "MIT"
+assets = [
+    { source = "target/release/storage-map", dest = "/usr/bin/storage-map", mode = "755" },
+    { source = "packaging/linux/storage-map.desktop", dest = "/usr/share/applications/storage-map.desktop", mode = "644" },
+    { source = "ui/favicon.svg", dest = "/usr/share/icons/hicolor/scalable/apps/storage-map.svg", mode = "644" },
+    { source = "packaging/linux/storage-map.1", dest = "/usr/share/man/man1/storage-map.1", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/storage-map/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/doc/storage-map/LICENSE", mode = "644", doc = true },
+    { source = "THIRD_PARTY_LICENSES.md", dest = "/usr/share/doc/storage-map/THIRD_PARTY_LICENSES.md", mode = "644", doc = true },
+]
+[package.metadata.generate-rpm.recommends]
+xdg-utils = "*"

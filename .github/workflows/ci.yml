@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Format and lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo test --locked
+      # Der Release-Build laeuft unter Windows ohne Konsole. Pipes muessen auch dann funktionieren.
+      - run: cargo test --locked --release
+
+  real-machine:
+    name: Real drives on a disposable machine
+    # Die CI-Rechner werden nach jedem Lauf weggeworfen. Hier duerfen die Tests, was sie sonst nicht duerfen:
+    # echtes Laufwerk scannen, echter Papierkorb, echte Laufwerksliste.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo test --locked --release -- --ignored
+      - run: cargo build --locked --release
+      - name: Scan the workspace in normal mode
+        shell: bash
+        run: |
+          target/release/storage-map --data-dir "$RUNNER_TEMP/sm" --scan "$GITHUB_WORKSPACE"
+          ls -la "$RUNNER_TEMP/sm/scans"
+      - name: List real drives over MCP
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_drives","arguments":{}}}' \
+            | target/release/storage-map --mcp --data-dir "$RUNNER_TEMP/sm" | tee "$RUNNER_TEMP/mcp.txt"
+          grep -q 'total_bytes' "$RUNNER_TEMP/mcp.txt"
+
+  mcp-client:
+    name: Official MCP client
+    # Prueft den Server gegen den MCP Inspector, im Demo-Betrieb mit erfundenen Daten.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo build --locked --release
+      - name: List tools and call one
+        run: |
+          inspector="npx -y @modelcontextprotocol/inspector@2.14.0 --cli"
+          bin="$PWD/target/release/storage-map"
+          data="$RUNNER_TEMP/mcp-demo"
+          $inspector "$bin" --mcp --demo --data-dir "$data" --method tools/list | tee tools.json
+          grep -q '"get_overview"' tools.json
+          $inspector "$bin" --mcp --demo --data-dir "$data" --method tools/call --tool-name get_access_status | tee status.json
+          grep -q 'read' status.json
+
+  msrv:
+    name: Minimum supported Rust version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check with the version from Cargo.toml
+        run: |
+          version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
+          rustup toolchain install "$version" --profile minimal
+          rm rust-toolchain.toml
+          cargo "+$version" check --locked
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-deny
+      - run: cargo deny --locked check
+
+  packages:
+    name: Packages can be built
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-about,cargo-deb,cargo-generate-rpm
+      - run: cargo about generate about.hbs --locked -o THIRD_PARTY_LICENSES.md
+      - run: cargo build --locked --release
+      - run: cargo deb --no-build --locked
+      - run: cargo generate-rpm

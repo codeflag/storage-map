@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Check version and collect notes
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-about
+      - id: v
+        name: Tag and Cargo.toml must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          case "$tag" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+      - name: Release notes from the changelog
+        run: |
+          base="${GITHUB_REF_NAME#v}"
+          base="${base%%-*}"
+          awk -v v="$base" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} /^\[.*\]: / {on=0} on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section for $base"
+            exit 1
+          fi
+          cat notes.md
+      - run: cargo about generate about.hbs --locked -o THIRD_PARTY_LICENSES.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: common
+          path: |
+            notes.md
+            THIRD_PARTY_LICENSES.md
+
+  windows:
+    name: Build Windows x86-64
+    needs: prepare
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: common
+      - name: Build
+        shell: bash
+        env:
+          # Keine Pfade des Build-Rechners im Programm.
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/storage-map
+        run: cargo build --locked --release
+      - name: Smoke test
+        shell: bash
+        run: bash scripts/smoke.sh target/release/storage-map.exe "$VERSION"
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "storage-map-$env:VERSION-windows-x86_64"
+          New-Item -ItemType Directory -Force "out/$name" | Out-Null
+          Copy-Item target/release/storage-map.exe, README.md, LICENSE, THIRD_PARTY_LICENSES.md "out/$name"
+          Compress-Archive -Path "out/$name" -DestinationPath "dist-$name.zip"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Move-Item "dist-$name.zip" "dist/$name.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-windows
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    name: Build Linux ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-unknown-linux-musl
+            runner: ""
+          - arch: aarch64
+            target: aarch64-unknown-linux-musl
+            runner: qemu-aarch64-static
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      RUNNER: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: common
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Install emulator
+        if: matrix.runner != ''
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+      - name: Build
+        env:
+          RUSTFLAGS: -C linker=rust-lld --remap-path-prefix=${{ github.workspace }}=/storage-map
+        run: |
+          rustup target add ${{ matrix.target }}
+          cargo build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test
+        run: bash scripts/smoke.sh "target/${{ matrix.target }}/release/storage-map" "$VERSION"
+      - name: Package
+        run: |
+          name="storage-map-$VERSION-linux-${{ matrix.arch }}"
+          mkdir -p dist "out/$name"
+          cp "target/${{ matrix.target }}/release/storage-map" README.md LICENSE THIRD_PARTY_LICENSES.md packaging/linux/storage-map.desktop packaging/linux/storage-map.1 "out/$name/"
+          cp ui/favicon.svg "out/$name/storage-map.svg"
+          tar -C out -czf "dist/$name.tar.gz" "$name"
+          cargo deb --locked --no-build --no-strip --target ${{ matrix.target }} --output "dist/$name.deb"
+          cargo generate-rpm --target ${{ matrix.target }} --output "dist/$name.rpm"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  test-packages:
+    name: Install on ${{ matrix.image }}
+    needs: [prepare, linux]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu:24.04
+            setup: apt-get update -qq && apt-get install -y -qq curl ./dist/*x86_64.deb
+          - image: debian:12
+            setup: apt-get update -qq && apt-get install -y -qq curl ./dist/*x86_64.deb
+          - image: fedora:latest
+            setup: dnf install -y -q ./dist/*x86_64.rpm
+          - image: alpine:latest
+            setup: apk add --no-cache bash curl && tar -xzf dist/*x86_64.tar.gz -C /tmp && cp /tmp/storage-map-*/storage-map /usr/local/bin/
+    container: ${{ matrix.image }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-linux-x86_64
+          path: dist
+      - name: Install
+        shell: sh
+        run: ${{ matrix.setup }}
+      - name: Smoke test the installed program
+        shell: sh
+        run: bash scripts/smoke.sh "$(command -v storage-map)" "$VERSION"
+      - name: Files are where they belong
+        if: matrix.image != 'alpine:latest'
+        shell: sh
+        run: |
+          test -x /usr/bin/storage-map
+          test -f /usr/share/applications/storage-map.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/storage-map.svg
+          test -f /usr/share/man/man1/storage-map.1 || test -f /usr/share/man/man1/storage-map.1.gz
+
+  publish:
+    name: Publish
+    needs: [prepare, windows, linux, test-packages]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+      - name: Collect files
+        run: |
+          mkdir release
+          find artifacts -path '*dist-*' -type f -exec cp {} release/ \;
+          cd release
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Attest build provenance
+        # GitHub bietet das nur fuer oeffentliche Repositories an.
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*
+      - name: Create the release
+        run: |
+          flags=""
+          if [ "$PRERELEASE" = "true" ]; then flags="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Storage Map $VERSION" \
+            --notes-file artifacts/common/notes.md \
+            $flags

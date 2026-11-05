@@ -1,0 +1,5 @@
+/target/
+/dist/
+/THIRD_PARTY_LICENSES.md
+*.tmp
+.claude/

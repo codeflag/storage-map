@@ -1,0 +1,17 @@
+# Third-party licenses
+
+Storage Map includes the following libraries.
+
+{{#each licenses}}
+## {{name}}
+
+Used by:
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+
+```
+{{{text}}}
+```
+
+{{/each}}
