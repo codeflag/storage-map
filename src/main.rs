@@ -125,9 +125,11 @@ fn open_window(url: &str, port: u16) {
             .stderr(Stdio::null())
             .spawn();
         if let Ok(mut c) = child {
+            server::WINDOW_PID.store(c.id(), Relaxed);
             let fallback = url.to_string();
             std::thread::spawn(move || {
                 let ok = c.wait().map(|s| s.success()).unwrap_or(false);
+                server::WINDOW_PID.store(0, Relaxed);
                 if started.elapsed() > Duration::from_secs(5) {
                     std::process::exit(0);
                 }

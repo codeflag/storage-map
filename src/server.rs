@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 use tiny_http::{Header, Method, Request, Response, Server};
@@ -61,6 +61,23 @@ impl RunMode {
             RunMode::Demo { .. } => demo::drives().iter().any(|d| d.root == path),
             RunMode::Sandbox(root) => inside(path, root),
         }
+    }
+}
+
+/// Prozess des eigenen App-Fensters, 0 wenn es keins gibt. Das Fenster laeuft mit eigenem Browser-Profil,
+/// dieser Prozess gehoert also nur zu Storage Map, nicht zum normalen Browser des Nutzers.
+pub static WINDOW_PID: AtomicU32 = AtomicU32::new(0);
+
+/// Bittet das Fenster, sich zu schliessen. Reagiert es nicht, wird es beendet: Ohne Programm dahinter waere es nutzlos.
+fn close_window(pid: u32) {
+    platform::close_process(pid, false);
+    let t0 = Instant::now();
+    while WINDOW_PID.load(Relaxed) == pid {
+        if t0.elapsed() > Duration::from_secs(3) {
+            platform::close_process(pid, true);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -1381,11 +1398,16 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         }
         "/api/quit" if !get => {
             app.quitting.store(true, Relaxed);
-            std::thread::spawn(|| {
+            let window = WINDOW_PID.load(Relaxed);
+            std::thread::spawn(move || {
+                // Erst die Antwort abschicken lassen.
                 std::thread::sleep(Duration::from_millis(200));
+                if window != 0 {
+                    close_window(window);
+                }
                 std::process::exit(0);
             });
-            Ok(json!({"ok": true}))
+            Ok(json!({"ok": true, "closesWindow": window != 0}))
         }
         _ => err(404, "Unbekannt"),
     }

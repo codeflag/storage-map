@@ -311,7 +311,11 @@ App.quit = () => {
     body: h('p', { class: 'soft' }, 'Der letzte Scan bleibt gespeichert und lässt sich beim nächsten Start sofort öffnen.'),
     actions: [
       { label: 'Abbrechen' },
-      { label: 'Beenden', kind: 'primary', run: () => api('quit', {}).then(() => { fill(document.body, h('div', { class: 'empty', style: { padding: '20vh 0' } }, 'Storage Map wurde beendet. Du kannst dieses Fenster schließen.')); window.close(); }).catch(fail) },
+      { label: 'Beenden', kind: 'primary', run: () => api('quit', {}).then((r) => {
+        // Das eigene Fenster schliesst das Programm selbst. Einen Tab im normalen Browser darf eine Seite nicht schliessen.
+        fill(document.body, h('div', { class: 'empty', style: { padding: '20vh 0' } }, r.closesWindow ? 'Storage Map wird beendet…' : 'Storage Map wurde beendet. Du kannst diesen Tab schließen.'));
+        window.close();
+      }).catch(fail) },
     ],
   });
 };

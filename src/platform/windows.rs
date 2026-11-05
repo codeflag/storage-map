@@ -431,6 +431,17 @@ pub fn open_quiet(path: &Path) -> std::io::Result<std::fs::File> {
     }
 }
 
+/// Beendet einen Prozess. Ohne `force` bekommt er die normale Aufforderung, sich zu schliessen.
+pub fn close_process(pid: u32, force: bool) {
+    let id = pid.to_string();
+    let mut cmd = Command::new("taskkill");
+    cmd.args(["/PID", &id]);
+    if force {
+        cmd.args(["/T", "/F"]);
+    }
+    let _ = cmd.creation_flags(CREATE_NO_WINDOW).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+}
+
 /// Edge oder Chrome: Beide koennen eine Seite als eigenes App-Fenster zeigen.
 pub fn find_app_browser() -> Option<PathBuf> {
     let mut bases = vec![];

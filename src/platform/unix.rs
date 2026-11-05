@@ -516,6 +516,16 @@ pub fn disk_health(root: &str) -> Option<serde_json::Value> {
     Some(v)
 }
 
+/// Beendet einen Prozess. Ohne `force` bekommt er die normale Aufforderung, sich zu schliessen.
+pub fn close_process(pid: u32, force: bool) {
+    // 0 waere die eigene Prozessgruppe, 1 das Init-System.
+    if pid > 1 {
+        unsafe {
+            libc::kill(pid as i32, if force { libc::SIGKILL } else { libc::SIGTERM });
+        }
+    }
+}
+
 fn in_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
 }

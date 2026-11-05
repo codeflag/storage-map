@@ -192,6 +192,24 @@ fn sandbox(data: &Path, root: &str) -> Srv {
 }
 
 #[test]
+fn quit_ends_the_program() {
+    let base = workspace("quit");
+    let data = base.join("data");
+    let mut s = start(&["--demo", "--data-dir", data.to_str().unwrap()]);
+    let r = post(&s, "/api/quit", json!({}));
+    assert_eq!(r["closesWindow"], false, "Ohne eigenes Fenster gibt es nichts zu schliessen");
+    let t0 = Instant::now();
+    loop {
+        if let Some(st) = s.child.try_wait().unwrap() {
+            assert_eq!(st.code(), Some(0));
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "Programm laeuft nach dem Beenden weiter");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
 fn output_to_a_closed_pipe_does_not_crash() {
     for arg in ["--help", "--version"] {
         let mut child = Command::new(EXE).arg(arg).stdout(std::process::Stdio::piped()).spawn().unwrap();
