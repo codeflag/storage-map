@@ -526,6 +526,14 @@ pub fn close_process(pid: u32, force: bool) {
     }
 }
 
+/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang.
+pub fn wait_for_exit(pid: u32, timeout: Duration) {
+    let t0 = std::time::Instant::now();
+    while Path::new(&format!("/proc/{pid}")).exists() && t0.elapsed() < timeout {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn in_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
 }

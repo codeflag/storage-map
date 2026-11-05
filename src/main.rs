@@ -77,6 +77,8 @@ struct Args {
     data_dir: Option<PathBuf>,
     make_fixture: Option<PathBuf>,
     unknown: Option<String>,
+    /// Intern, fuer den Neustart: erst loslegen, wenn dieser Prozess beendet ist.
+    after_pid: Option<u32>,
 }
 
 fn parse_args() -> Args {
@@ -91,6 +93,7 @@ fn parse_args() -> Args {
             "--ui-dir" => a.ui_dir = it.next().map(PathBuf::from),
             "--scan" => a.scan = it.next(),
             "--mcp" => a.mcp = true,
+            "--after-pid" => a.after_pid = it.next().and_then(|v| v.parse().ok()),
             "--demo" => a.demo = true,
             "--demo-scale" => a.demo_scale = it.next().and_then(|v| v.parse().ok()).unwrap_or(1),
             "--sandbox" => a.sandbox = it.next(),
@@ -245,6 +248,10 @@ fn main() {
             }
         }
         return;
+    }
+
+    if let Some(pid) = args.after_pid {
+        platform::wait_for_exit(pid, Duration::from_secs(10));
     }
 
     let mode = if args.demo {

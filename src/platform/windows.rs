@@ -18,7 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, SetFileTime, FILE_FLAG_BACKUP_SEMANTICS,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, WaitForSingleObject};
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::UI::Shell::{
     IsUserAnAdmin, SHEmptyRecycleBinW, SHFileOperationW, SHQueryRecycleBinW, ShellExecuteW, SHFILEOPSTRUCTW, SHQUERYRBINFO,
@@ -440,6 +440,19 @@ pub fn close_process(pid: u32, force: bool) {
         cmd.args(["/T", "/F"]);
     }
     let _ = cmd.creation_flags(CREATE_NO_WINDOW).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+}
+
+/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang.
+pub fn wait_for_exit(pid: u32, timeout: Duration) {
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    let h = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
+    if h.is_null() {
+        return;
+    }
+    unsafe {
+        WaitForSingleObject(h, timeout.as_millis().min(u32::MAX as u128) as u32);
+        CloseHandle(h);
+    }
 }
 
 /// Edge oder Chrome: Beide koennen eine Seite als eigenes App-Fenster zeigen.

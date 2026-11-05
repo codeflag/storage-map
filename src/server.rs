@@ -81,6 +81,31 @@ fn close_window(pid: u32) {
     }
 }
 
+/// Beendet das Programm samt eigenem Fenster, sobald die Antwort unterwegs ist. `true`, wenn es ein Fenster gibt.
+fn shut_down(app: &App) -> bool {
+    app.quitting.store(true, Relaxed);
+    let window = WINDOW_PID.load(Relaxed);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        if window != 0 {
+            close_window(window);
+        }
+        std::process::exit(0);
+    });
+    window != 0
+}
+
+/// Argumente fuer den Neustart: Das neue Programm wartet, bis dieses hier weg ist. Sonst faende es noch
+/// die alte Instanz vor und wuerde sich ihr anschliessen, oder der Port waere noch belegt.
+fn restart_args() -> String {
+    let mut args = format!("--after-pid {}", std::process::id());
+    if history::has_custom_data_dir() {
+        let dir = history::data_dir();
+        args.push_str(&format!(" --data-dir \"{}\"", dir.to_string_lossy().trim_end_matches('\\')));
+    }
+    args
+}
+
 pub const REFUSED: &str = "Im Test-Betrieb ist nur der Testordner erlaubt.";
 
 pub struct App {
@@ -1385,30 +1410,14 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
             if app.is_busy() {
                 return err(409, "Es läuft noch ein anderer Vorgang.");
             }
-            if platform::restart_elevated("") {
-                app.quitting.store(true, Relaxed);
-                std::thread::spawn(|| {
-                    std::thread::sleep(Duration::from_millis(400));
-                    std::process::exit(0);
-                });
+            if platform::restart_elevated(&restart_args()) {
+                shut_down(app);
                 Ok(json!({"ok": true}))
             } else {
                 err(400, "Adminrechte wurden nicht erteilt.")
             }
         }
-        "/api/quit" if !get => {
-            app.quitting.store(true, Relaxed);
-            let window = WINDOW_PID.load(Relaxed);
-            std::thread::spawn(move || {
-                // Erst die Antwort abschicken lassen.
-                std::thread::sleep(Duration::from_millis(200));
-                if window != 0 {
-                    close_window(window);
-                }
-                std::process::exit(0);
-            });
-            Ok(json!({"ok": true, "closesWindow": window != 0}))
-        }
+        "/api/quit" if !get => Ok(json!({"ok": true, "closesWindow": shut_down(app)})),
         _ => err(404, "Unbekannt"),
     }
 }

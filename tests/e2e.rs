@@ -210,6 +210,35 @@ fn quit_ends_the_program() {
 }
 
 #[test]
+fn restart_waits_until_the_old_program_is_gone() {
+    let base = workspace("after");
+    let (old_data, new_data) = (base.join("alt"), base.join("neu"));
+    let mut old = start(&["--demo", "--data-dir", old_data.to_str().unwrap()]);
+
+    let port = free_port();
+    let mut new = Srv {
+        child: Command::new(EXE)
+            .args(["--after-pid", &old.child.id().to_string(), "--demo", "--data-dir", new_data.to_str().unwrap()])
+            .args(["--no-open", "--token", "t", "--port", &port.to_string()])
+            .spawn()
+            .unwrap(),
+        port,
+    };
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(TcpStream::connect(("127.0.0.1", port)).is_err(), "Das neue Programm muss noch warten");
+    assert!(new.child.try_wait().unwrap().is_none());
+
+    old.child.kill().unwrap();
+    old.child.wait().unwrap();
+    let t0 = Instant::now();
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "Das neue Programm startet nicht");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(get(&new, "/api/status")["mode"], "demo");
+}
+
+#[test]
 fn output_to_a_closed_pipe_does_not_crash() {
     for arg in ["--help", "--version"] {
         let mut child = Command::new(EXE).arg(arg).stdout(std::process::Stdio::piped()).spawn().unwrap();
