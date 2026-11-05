@@ -14,7 +14,7 @@ use crate::scan::{self, ScanProgress};
 use crate::{assets, demo, mcp, platform};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, RwLock};
@@ -309,7 +309,7 @@ pub fn run_scan(root: &str, progress: &ScanProgress, drive: Option<platform::Dri
     }
     *progress.phase.lock().unwrap() = "save".into();
     if let Err(e) = history::save_scan(&ix) {
-        eprintln!("Scan konnte nicht gespeichert werden: {e}");
+        let _ = writeln!(std::io::stderr(), "Scan konnte nicht gespeichert werden: {e}");
     }
     Ok(ix)
 }

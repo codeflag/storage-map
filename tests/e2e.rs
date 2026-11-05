@@ -192,6 +192,29 @@ fn sandbox(data: &Path, root: &str) -> Srv {
 }
 
 #[test]
+fn output_to_a_closed_pipe_does_not_crash() {
+    for arg in ["--help", "--version"] {
+        let mut child = Command::new(EXE).arg(arg).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        // Der Leser ist weg, bevor das Programm schreibt: wie bei `storage-map --help | head -1`.
+        drop(child.stdout.take());
+        assert_eq!(child.wait().unwrap().code(), Some(0), "{arg}");
+    }
+}
+
+#[test]
+fn test_folder_accepts_forward_slashes_and_relative_paths() {
+    let base = workspace("slashes");
+    let with_slashes = base.join("fx").to_string_lossy().replace('\\', "/");
+    let st = Command::new(EXE).arg("--make-fixture").arg(&with_slashes).status().unwrap();
+    assert!(st.success());
+    assert!(base.join("fx").join("Filme").join("urlaub-2019.mp4").exists());
+
+    let st = Command::new(EXE).current_dir(&base).args(["--make-fixture", "relativ"]).status().unwrap();
+    assert!(st.success());
+    assert!(base.join("relativ").join("Filme").join("urlaub-2019.mp4").exists());
+}
+
+#[test]
 fn security_rejects_foreign_requests() {
     let (_fx, data, root) = fixture("sec");
     let s = sandbox(&data, &root);

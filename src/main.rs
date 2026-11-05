@@ -18,6 +18,7 @@ mod platform;
 mod scan;
 mod server;
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering::Relaxed;
@@ -46,6 +47,19 @@ Testing without real drives:
   --sandbox PATH     Real scan and cleanup, limited to this test folder
   --make-fixture DIR Create a test folder with known contents
 ";
+
+/// Wie println, aber ohne Absturz, wenn der Leser schon weg ist (`storage-map --help | head -1`).
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
+macro_rules! complain {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
 
 #[derive(Default)]
 struct Args {
@@ -127,7 +141,7 @@ fn open_window(url: &str, port: u16) {
         }
     }
     if !platform::open_url(url) {
-        println!("Storage Map is running. Open this address in a browser: {url}");
+        say!("Storage Map is running. Open this address in a browser: {url}");
     }
 }
 
@@ -141,7 +155,7 @@ fn http_body(reply: &str) -> Option<&str> {
 
 /// Laeuft schon eine Instanz? Dann nur ihr Fenster oeffnen statt einer zweiten.
 fn existing_instance() -> Option<(u16, String)> {
-    use std::io::{Read, Write};
+    use std::io::Read;
     let t = std::fs::read_to_string(instance_file()).ok()?;
     let v: serde_json::Value = serde_json::from_str(&t).ok()?;
     let port = v["port"].as_u64()? as u16;
@@ -164,12 +178,12 @@ fn headless_scan(root: &str, mode: &server::RunMode) -> i32 {
     let root = match paths::normalize(root) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error: {e}");
+            complain!("Error: {e}");
             return 2;
         }
     };
     if !mode.allows(&root) {
-        eprintln!("Error: in a test mode only the test folder is allowed.");
+        complain!("Error: in a test mode only the test folder is allowed.");
         return 2;
     }
     let drive = if mode.is_normal() { platform::volume_root(&root).map(|r| platform::volume_info(&r)) } else { None };
@@ -179,7 +193,7 @@ fn headless_scan(root: &str, mode: &server::RunMode) -> i32 {
     match server::run_scan(&root, &p, drive, mode) {
         Ok(ix) => {
             let n = &ix.nodes[0];
-            println!(
+            say!(
                 "{}: {:.1} GB in {} files and {} folders, {:.1} s, {} threads ({}), {} unreadable",
                 root,
                 n.alloc as f64 / 1e9,
@@ -193,7 +207,7 @@ fn headless_scan(root: &str, mode: &server::RunMode) -> i32 {
             0
         }
         Err(e) => {
-            eprintln!("Error: {e}");
+            complain!("Error: {e}");
             1
         }
     }
@@ -206,22 +220,25 @@ fn main() {
         platform::attach_console();
     }
     if let Some(u) = &args.unknown {
-        eprintln!("Unknown option: {u}\n\n{HELP}");
+        complain!("Unknown option: {u}\n\n{HELP}");
         std::process::exit(2);
     }
     if args.help {
-        println!("{HELP}");
+        say!("{HELP}");
         return;
     }
     if args.version {
-        println!("storage-map {}", env!("CARGO_PKG_VERSION"));
+        say!("storage-map {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     if let Some(dir) = args.make_fixture.as_deref() {
+        // Der Testordner enthaelt Pfade ueber 260 Zeichen. Die lange Windows-Form verlangt einen absoluten Pfad mit Backslashes.
+        let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let dir = dir.as_path();
         match demo::make_fixture(dir) {
-            Ok(()) => println!("Test folder created: {}", dir.display()),
+            Ok(()) => say!("Test folder created: {}", dir.display()),
             Err(e) => {
-                eprintln!("Error: {e}");
+                complain!("Error: {e}");
                 std::process::exit(1);
             }
         }
@@ -234,7 +251,7 @@ fn main() {
         match paths::normalize(sb) {
             Ok(r) => server::RunMode::Sandbox(r),
             Err(e) => {
-                eprintln!("Error: {e}");
+                complain!("Error: {e}");
                 std::process::exit(2);
             }
         }
@@ -288,7 +305,7 @@ fn main() {
     let no_open = args.no_open;
     let app = server::App::new(token.clone(), port, args.ui_dir.clone(), mode);
     if no_open {
-        println!("Storage Map is running: http://127.0.0.1:{port}/?t={token}");
+        say!("Storage Map is running: http://127.0.0.1:{port}/?t={token}");
     } else {
         // Das Token gehoert nicht in die Kommandozeile des Browsers, die sehen unter Linux auch andere Nutzer.
         // Das Fenster bekommt deshalb nur einen Einmal-Code und tauscht ihn gegen das Token.

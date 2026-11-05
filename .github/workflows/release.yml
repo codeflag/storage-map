@@ -130,7 +130,8 @@ jobs:
           cp ui/favicon.svg "out/$name/storage-map.svg"
           tar -C out -czf "dist/$name.tar.gz" "$name"
           cargo deb --locked --no-build --no-strip --target ${{ matrix.target }} --output "dist/$name.deb"
-          cargo generate-rpm --target ${{ matrix.target }} --output "dist/$name.rpm"
+          # RPM verbietet "-" in der Version. "~" sortiert eine Vorabversion vor die endgueltige.
+          cargo generate-rpm --target ${{ matrix.target }} --output "dist/$name.rpm" --set-metadata "version = \"${VERSION//-/\~}\""
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux-${{ matrix.arch }}
