@@ -474,7 +474,7 @@ async function openCart() {
       c.count > c.rows.length ? h('div', { class: 'muted' }, t('cartDlg.shown', { shown: fmtNum(c.rows.length), total: fmtNum(c.count) })) : null,
     ],
     actions: [
-      { label: t('cartDlg.clear'), kind: 'ghost', run: () => api('cart/clear', {}).then(() => poll()).catch(fail) },
+      { label: t('cartDlg.clear'), kind: 'ghost', run: () => api('cart/clear', {}).then(() => { poll(); }).catch(fail) },
       h('a', { class: 'btn ghost', href: '#', onclick: (e) => { e.preventDefault(); downloadCsv({ what: 'cart' }); } }, icon('export'), 'CSV'),
       h('span', { class: 'grow' }),
       { label: t('cartDlg.permanent'), kind: 'ghost', icon: 'x', run: () => { confirmPermanent(c); return false; } },

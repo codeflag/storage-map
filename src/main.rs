@@ -291,7 +291,8 @@ fn main() {
     };
     // Test-Betriebe nie in den echten Verlauf schreiben.
     match (&args.data_dir, &mode) {
-        (Some(d), _) => history::set_data_dir(d.clone()),
+        // Absolut, denn die lange Pfadform von Windows kennt keine relativen Pfade.
+        (Some(d), _) => history::set_data_dir(std::path::absolute(d).unwrap_or_else(|_| d.clone())),
         (None, server::RunMode::Demo { .. }) => history::set_data_dir(std::env::temp_dir().join("StorageMap-Demo")),
         (None, server::RunMode::Sandbox(_)) => history::set_data_dir(std::env::temp_dir().join("StorageMap-Sandbox")),
         _ => {}
