@@ -7,6 +7,7 @@
 [![Platform: Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#download)
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange)](CONTRIBUTING.md)
 [![MCP server](https://img.shields.io/badge/MCP-server-8A2BE2)](docs/mcp.md)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/codeflag)
 
 [Deutsche Version](README.de.md)
 
@@ -131,6 +132,14 @@ cargo test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organized and how to test it.
+
+## Support
+
+Storage Map is free and open source. If it got a few gigabytes back for you, I'd be happy about a coffee. That's entirely up to you: a bug report or a kind word makes my day just as much. Thanks for trying it!
+
+<a href="https://buymeacoffee.com/codeflag"><img src="docs/img/buymeacoffee-qr.png" alt="QR code for buymeacoffee.com/codeflag" width="160"></a>
+
+[buymeacoffee.com/codeflag](https://buymeacoffee.com/codeflag)
 
 ## License
 

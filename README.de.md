@@ -7,6 +7,7 @@
 [![Platform: Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#herunterladen)
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange)](CONTRIBUTING.md)
 [![MCP server](https://img.shields.io/badge/MCP-server-8A2BE2)](docs/mcp.md)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/codeflag)
 
 [English version](README.md)
 
@@ -104,6 +105,14 @@ storage-map --sandbox /tmp/fixture
 ```
 
 Legt einen Testordner mit bekanntem Inhalt an (etwa 80 MB) und prüft damit den echten Scan, das Hashen und das Entfernen. Alles außerhalb des Ordners wird abgelehnt.
+
+## Unterstützen
+
+Storage Map ist kostenlos und quelloffen. Wenn es dir ein paar Gigabyte zurückgeholt hat, freue ich mich über einen Kaffee. Das ist ganz dir überlassen: Über einen Fehlerbericht oder ein nettes Wort freue ich mich genauso. Danke fürs Ausprobieren!
+
+<a href="https://buymeacoffee.com/codeflag"><img src="docs/img/buymeacoffee-qr.png" alt="QR-Code für buymeacoffee.com/codeflag" width="160"></a>
+
+[buymeacoffee.com/codeflag](https://buymeacoffee.com/codeflag)
 
 ## Bauen und Lizenz
 
