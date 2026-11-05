@@ -442,17 +442,78 @@ pub fn close_process(pid: u32, force: bool) {
     let _ = cmd.creation_flags(CREATE_NO_WINDOW).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
 }
 
-/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang.
-pub fn wait_for_exit(pid: u32, timeout: Duration) {
+/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang. `true`, wenn er weg ist.
+pub fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
     const SYNCHRONIZE: u32 = 0x0010_0000;
     let h = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
     if h.is_null() {
-        return;
+        return true;
     }
     unsafe {
-        WaitForSingleObject(h, timeout.as_millis().min(u32::MAX as u128) as u32);
+        let result = WaitForSingleObject(h, timeout.as_millis().min(u32::MAX as u128) as u32);
         CloseHandle(h);
+        result == 0
     }
+}
+
+/// Kommandozeile eines anderen Prozesses. Das geht ohne besondere Rechte, solange er demselben Nutzer gehoert.
+fn command_line_of(pid: u32) -> Option<String> {
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        max: u16,
+        buffer: *const u16,
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+    let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if h.is_null() {
+        return None;
+    }
+    let mut buf = vec![0u64; 8 * 1024];
+    let mut ret = 0u32;
+    let st =
+        unsafe { NtQueryInformationProcess(h, PROCESS_COMMAND_LINE_INFORMATION, buf.as_mut_ptr() as *mut c_void, (buf.len() * 8) as u32, &mut ret) };
+    unsafe { CloseHandle(h) };
+    if st < 0 {
+        return None;
+    }
+    let s = unsafe { &*(buf.as_ptr() as *const UnicodeString) };
+    if s.buffer.is_null() {
+        return None;
+    }
+    let chars = unsafe { std::slice::from_raw_parts(s.buffer, s.length as usize / 2) };
+    Some(String::from_utf16_lossy(chars))
+}
+
+/// Hauptprozesse von Edge oder Chrome, die mit diesem Profil laufen. Das Profil gehoert nur Storage Map,
+/// der normale Browser des Nutzers ist also nie dabei.
+pub fn browsers_using_profile(profile: &Path) -> Vec<u32> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let wanted = profile.to_string_lossy().to_lowercase();
+    let mut out = vec![];
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap == INVALID_HANDLE_VALUE {
+        return out;
+    }
+    let mut e: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut more = unsafe { Process32FirstW(snap, &mut e) } != 0;
+    while more {
+        let name = utf16_z(&e.szExeFile).to_lowercase();
+        if name == "msedge.exe" || name == "chrome.exe" {
+            if let Some(cmd) = command_line_of(e.th32ProcessID) {
+                if super::is_browser_on_profile(&cmd.to_lowercase(), &wanted) {
+                    out.push(e.th32ProcessID);
+                }
+            }
+        }
+        more = unsafe { Process32NextW(snap, &mut e) } != 0;
+    }
+    unsafe { CloseHandle(snap) };
+    out
 }
 
 /// Edge oder Chrome: Beide koennen eine Seite als eigenes App-Fenster zeigen.
@@ -535,6 +596,7 @@ extern "system" {
         name: *const c_void,
         restart: u8,
     ) -> i32;
+    fn NtQueryInformationProcess(process: HANDLE, class: u32, info: *mut c_void, len: u32, ret: *mut u32) -> i32;
 }
 
 const STATUS_NO_MORE_FILES: i32 = 0x8000_0006u32 as i32;

@@ -50,6 +50,23 @@ pub struct RawEntry {
     pub file_id: u64,
 }
 
+/// Ist das der Hauptprozess eines Browsers auf diesem Profil? Seine Hilfsprozesse tragen `--type=`.
+/// Nach dem Pfad muss die Angabe enden, sonst passte `window` auch auf `window-47892`.
+pub fn is_browser_on_profile(cmdline: &str, profile: &str) -> bool {
+    if cmdline.contains("--type=") {
+        return false;
+    }
+    let wanted = format!("--user-data-dir={profile}");
+    let mut rest = cmdline;
+    while let Some(i) = rest.find(&wanted) {
+        rest = &rest[i + wanted.len()..];
+        if matches!(rest.chars().next(), None | Some('"') | Some(' ') | Some('\0')) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Wandelt Zeitstempel in Sekunden seit 1970 um, ohne bei exotischen Werten ueberzulaufen.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn clamp_secs(secs: i64) -> u32 {
@@ -61,4 +78,27 @@ pub fn random_hex() -> String {
     let mut b = [0u8; 16];
     random_bytes(&mut b);
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_the_main_process_of_a_profile() {
+        let p = r"C:\Daten\StorageMap\window";
+        assert!(is_browser_on_profile(r#"msedge.exe --app=x --user-data-dir=C:\Daten\StorageMap\window --no-first-run"#, p));
+        assert!(is_browser_on_profile(r#"msedge.exe --user-data-dir=C:\Daten\StorageMap\window"#, p));
+        assert!(is_browser_on_profile("chromium\0--app=x\0--user-data-dir=/home/a/window\0--no-first-run\0", "/home/a/window"));
+        assert!(is_browser_on_profile(r#"msedge.exe "--user-data-dir=C:\Mit Leerzeichen\window" --x"#, r"C:\Mit Leerzeichen\window"));
+    }
+
+    #[test]
+    fn ignores_helpers_other_profiles_and_the_normal_browser() {
+        let p = r"C:\Daten\StorageMap\window";
+        assert!(!is_browser_on_profile(r#"msedge.exe --type=renderer --user-data-dir=C:\Daten\StorageMap\window"#, p), "Hilfsprozess");
+        assert!(!is_browser_on_profile(r#"msedge.exe --user-data-dir=C:\Daten\StorageMap\window-47892"#, p), "anderes Profil");
+        assert!(!is_browser_on_profile(r#"msedge.exe --profile-directory=Default"#, p), "normaler Browser des Nutzers");
+        assert!(!is_browser_on_profile(r#"msedge.exe https://example.com"#, p));
+    }
 }

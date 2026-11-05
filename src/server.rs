@@ -64,35 +64,51 @@ impl RunMode {
     }
 }
 
-/// Prozess des eigenen App-Fensters, 0 wenn es keins gibt. Das Fenster laeuft mit eigenem Browser-Profil,
-/// dieser Prozess gehoert also nur zu Storage Map, nicht zum normalen Browser des Nutzers.
+/// Vom Programm gestarteter Browser-Prozess des App-Fensters, 0 wenn es keinen gibt.
 pub static WINDOW_PID: AtomicU32 = AtomicU32::new(0);
 
-/// Bittet das Fenster, sich zu schliessen. Reagiert es nicht, wird es beendet: Ohne Programm dahinter waere es nutzlos.
-fn close_window(pid: u32) {
-    platform::close_process(pid, false);
+/// Browser-Profil des App-Fensters. Es gehoert nur Storage Map, der normale Browser des Nutzers nutzt es nie.
+pub static WINDOW_PROFILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Alle Browser-Prozesse, die Fenster von Storage Map zeigen. Der gestartete Prozess allein reicht nicht:
+/// Laeuft schon ein Browser auf dem Profil, uebergibt er ihm und beendet sich sofort.
+fn window_processes() -> Vec<u32> {
+    let mut pids = WINDOW_PROFILE.get().map(|p| platform::browsers_using_profile(p)).unwrap_or_default();
+    let own = WINDOW_PID.load(Relaxed);
+    if own != 0 && !pids.contains(&own) {
+        pids.push(own);
+    }
+    pids
+}
+
+/// Bittet Browser-Prozesse, sich zu schliessen. Eine Aufforderung erreicht nicht immer alle Fenster, deshalb wird sie wiederholt.
+/// Wer nach drei Sekunden noch da ist, wird beendet: Ohne Programm dahinter waere das Fenster nutzlos.
+pub fn close_browsers(pids: &[u32]) {
     let t0 = Instant::now();
-    while WINDOW_PID.load(Relaxed) == pid {
-        if t0.elapsed() > Duration::from_secs(3) {
-            platform::close_process(pid, true);
-            return;
+    let mut left = pids.to_vec();
+    while !left.is_empty() && t0.elapsed() < Duration::from_secs(3) {
+        for pid in &left {
+            platform::close_process(*pid, false);
         }
-        std::thread::sleep(Duration::from_millis(50));
+        left.retain(|pid| !platform::wait_for_exit(*pid, Duration::from_millis(300)));
+    }
+    for pid in &left {
+        platform::close_process(*pid, true);
+        platform::wait_for_exit(*pid, Duration::from_secs(2));
     }
 }
 
 /// Beendet das Programm samt eigenem Fenster, sobald die Antwort unterwegs ist. `true`, wenn es ein Fenster gibt.
 fn shut_down(app: &App) -> bool {
     app.quitting.store(true, Relaxed);
-    let window = WINDOW_PID.load(Relaxed);
+    let windows = window_processes();
+    let any = !windows.is_empty();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(200));
-        if window != 0 {
-            close_window(window);
-        }
+        close_browsers(&windows);
         std::process::exit(0);
     });
-    window != 0
+    any
 }
 
 /// Argumente fuer den Neustart: Das neue Programm wartet, bis dieses hier weg ist. Sonst faende es noch
@@ -1199,7 +1215,7 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
     let get = *method == Method::Get;
     match path {
         "/api/status" => Ok(status(app)),
-        "/api/session/new" if !get => Ok(json!({"code": app.new_session_code()})),
+        "/api/session/new" if !get => Ok(json!({"code": app.new_session_code(), "mode": app.mode.name()})),
         "/api/mcp" => Ok(mcp_info(app)),
         "/api/mcp/config" if !get => mcp_set_config(body),
         "/api/mcp/audit" => Ok(mcp::audit_tail(num(m, "limit", 200usize).min(2000))),

@@ -526,12 +526,34 @@ pub fn close_process(pid: u32, force: bool) {
     }
 }
 
-/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang.
-pub fn wait_for_exit(pid: u32, timeout: Duration) {
+/// Wartet, bis ein anderer Prozess beendet ist, hoechstens `timeout` lang. `true`, wenn er weg ist.
+pub fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
     let t0 = std::time::Instant::now();
-    while Path::new(&format!("/proc/{pid}")).exists() && t0.elapsed() < timeout {
+    loop {
+        if !Path::new(&format!("/proc/{pid}")).exists() {
+            return true;
+        }
+        if t0.elapsed() >= timeout {
+            return false;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Hauptprozesse eines Browsers, die mit diesem Profil laufen. Das Profil gehoert nur Storage Map,
+/// der normale Browser des Nutzers ist also nie dabei.
+pub fn browsers_using_profile(profile: &Path) -> Vec<u32> {
+    let wanted = profile.to_string_lossy();
+    let Ok(rd) = std::fs::read_dir("/proc") else { return vec![] };
+    let mut out = vec![];
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
+        let Ok(raw) = std::fs::read(e.path().join("cmdline")) else { continue };
+        if super::is_browser_on_profile(&String::from_utf8_lossy(&raw), &wanted) {
+            out.push(pid);
+        }
+    }
+    out
 }
 
 fn in_path(name: &str) -> Option<PathBuf> {
@@ -653,5 +675,26 @@ impl Lister {
             });
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_a_process_by_its_profile_and_closes_it() {
+        let dir = std::env::temp_dir().join(format!("smap-profile-{}", std::process::id()));
+        let mut c = Command::new("sh").args(["-c", "sleep 20; true"]).arg(format!("--user-data-dir={}", dir.display())).spawn().unwrap();
+        let t0 = std::time::Instant::now();
+        while !browsers_using_profile(&dir).contains(&c.id()) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "Prozess wird nicht gefunden");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(browsers_using_profile(&dir.join("anders")).is_empty());
+        close_process(c.id(), false);
+        c.wait().unwrap();
+        assert!(browsers_using_profile(&dir).is_empty());
+        assert!(wait_for_exit(c.id(), Duration::from_secs(1)));
     }
 }

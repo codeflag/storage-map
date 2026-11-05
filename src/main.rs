@@ -108,9 +108,16 @@ fn parse_args() -> Args {
 }
 
 /// Oeffnet die Oberflaeche als eigenes App-Fenster und beendet das Programm, wenn es geschlossen wird.
-fn open_window(url: &str, port: u16) {
+/// `fresh`: Dieses Programm ist die einzige Instanz. Was dann noch auf dem Profil laeuft, ist ein Rest.
+fn open_window(url: &str, port: u16, fresh: bool) {
     if let Some(browser) = platform::find_app_browser() {
         let profile = history::data_dir().join(if port == DEFAULT_PORT { "window".to_string() } else { format!("window-{port}") });
+        if fresh {
+            // Fenster eines frueheren Laufs: ohne Programm dahinter nutzlos, und der neue Browser wuerde
+            // sich ihm nur anschliessen, statt selbst zu laufen.
+            server::close_browsers(&platform::browsers_using_profile(&profile));
+        }
+        let _ = server::WINDOW_PROFILE.set(profile.clone());
         let started = Instant::now();
         let child = Command::new(browser)
             .arg(format!("--app={url}"))
@@ -136,10 +143,20 @@ fn open_window(url: &str, port: u16) {
                 if started.elapsed() > Duration::from_secs(5) {
                     std::process::exit(0);
                 }
-                // Beendet sich der Browser sofort, hat ein schon laufendes Fenster uebernommen.
-                // Ist er dabei gescheitert, bleibt der Standardbrowser.
+                // Beendet sich der Browser sofort, hat er an einen anderen auf demselben Profil uebergeben.
+                // Dann zaehlt dessen Ende. Gibt es keinen, wurde das Fenster gleich wieder geschlossen oder der Start ist gescheitert.
+                std::thread::sleep(Duration::from_millis(500));
+                if let Some(other) = platform::browsers_using_profile(&profile).first().copied() {
+                    if fresh {
+                        platform::wait_for_exit(other, Duration::from_secs(u32::MAX as u64 / 1000));
+                        std::process::exit(0);
+                    }
+                    return;
+                }
                 if !ok {
                     platform::open_url(&fallback);
+                } else if fresh {
+                    std::process::exit(0);
                 }
             });
             return;
@@ -176,6 +193,10 @@ fn existing_instance() -> Option<(u16, String)> {
     let mut buf = String::new();
     let _ = s.read_to_string(&mut buf);
     let v: serde_json::Value = serde_json::from_str(http_body(&buf)?).ok()?;
+    // Ein Demo- oder Testserver auf demselben Port ist nicht die laufende Instanz.
+    if v["mode"] != "normal" {
+        return None;
+    }
     Some((port, v["code"].as_str()?.to_string()))
 }
 
@@ -296,7 +317,7 @@ fn main() {
 
     if args.port.is_none() && !args.no_open && mode.is_normal() {
         if let Some((port, code)) = existing_instance() {
-            open_window(&format!("http://127.0.0.1:{port}/?c={code}"), port);
+            open_window(&format!("http://127.0.0.1:{port}/?c={code}"), port, false);
             std::thread::sleep(Duration::from_secs(1));
             return;
         }
@@ -318,7 +339,7 @@ fn main() {
     } else {
         // Das Token gehoert nicht in die Kommandozeile des Browsers, die sehen unter Linux auch andere Nutzer.
         // Das Fenster bekommt deshalb nur einen Einmal-Code und tauscht ihn gegen das Token.
-        open_window(&format!("http://127.0.0.1:{port}/?c={}", app.new_session_code()), port);
+        open_window(&format!("http://127.0.0.1:{port}/?c={}", app.new_session_code()), port, true);
     }
 
     // Im Browser-Modus gibt es kein Fenster, das wir beobachten koennten: Nach langer Stille beenden.
