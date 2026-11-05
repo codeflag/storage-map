@@ -4,7 +4,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-05
 
 First public version.
 
@@ -19,6 +19,11 @@ First public version.
 - MCP server (`--mcp`) with access levels off, read, write and delete, a separate permission for starting scans and for permanent deletion, and a log of all calls.
 - Demo and sandbox modes for trying the program without touching real drives.
 - English and German interface. It follows the browser language, and a switch in the header changes it.
+
+### Known limitations
+
+- Windows builds are not code-signed, so SmartScreen may warn on first start.
+- On Linux, the window, the file manager integration and drive health have not been tested on a real desktop yet. Scan, cleanup, trash and the MCP server are covered by automated tests.
 
 [Unreleased]: https://github.com/codeflag/storage-map/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/codeflag/storage-map/releases/tag/v0.1.0
