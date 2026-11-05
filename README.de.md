@@ -1,5 +1,13 @@
 # Storage Map
 
+[![CI](https://github.com/codeflag/storage-map/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/codeflag/storage-map/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/codeflag/storage-map)](https://github.com/codeflag/storage-map/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/codeflag/storage-map/total)](https://github.com/codeflag/storage-map/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Platform: Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#herunterladen)
+[![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange)](CONTRIBUTING.md)
+[![MCP server](https://img.shields.io/badge/MCP-server-8A2BE2)](docs/mcp.md)
+
 [English version](README.md)
 
 Storage Map zeigt, womit ein Laufwerk gefüllt ist, und hilft beim Aufräumen. Es läuft unter Windows und Linux als einzelnes Programm und braucht keine Installation.
