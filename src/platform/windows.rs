@@ -1,6 +1,7 @@
 //! Windows-Seite der Plattform-Schicht: duenne Huelle um die APIs, die Storage Map braucht.
 
 use super::{clamp_secs, DriveInfo, RawEntry};
+use crate::i18n::Text;
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::OpenOptionsExt;
@@ -392,21 +393,25 @@ pub fn has_mount_inside(_path: &Path) -> bool {
     false
 }
 
-pub fn friendly_error(e: &std::io::Error) -> Option<String> {
+pub fn friendly_error(e: &std::io::Error) -> Option<Text> {
     match e.raw_os_error() {
-        Some(32) => Some("Wird gerade von einem Programm benutzt.".to_string()),
-        Some(5) => Some("Keine Berechtigung. Evtl. als Administrator starten.".to_string()),
+        Some(32) => Some(Text::new("Currently in use by a program.", "Wird gerade von einem Programm benutzt.")),
+        Some(5) => Some(Text::new("No permission. Try starting as administrator.", "Keine Berechtigung. Evtl. als Administrator starten.")),
         _ => None,
     }
 }
 
-pub fn describe_remaining(p: &Path, is_dir: bool) -> String {
+pub fn describe_remaining(p: &Path, is_dir: bool) -> Text {
+    const NOT_REMOVED: Text = Text::new("Could not be removed.", "Konnte nicht entfernt werden.");
     if is_dir {
-        return "Konnte nicht (vollständig) entfernt werden. Wird evtl. gerade benutzt oder braucht Adminrechte.".into();
+        return Text::new(
+            "Could not be removed (completely). It may be in use or need administrator rights.",
+            "Konnte nicht (vollständig) entfernt werden. Wird evtl. gerade benutzt oder braucht Adminrechte.",
+        );
     }
     match std::fs::OpenOptions::new().write(true).open(long_pathbuf(p)) {
-        Err(e) => friendly_error(&e).unwrap_or_else(|| "Konnte nicht entfernt werden.".into()),
-        _ => "Konnte nicht entfernt werden.".into(),
+        Err(e) => friendly_error(&e).unwrap_or(NOT_REMOVED),
+        _ => NOT_REMOVED,
     }
 }
 
@@ -542,7 +547,7 @@ pub fn open_url(url: &str) -> bool {
 
 pub fn random_bytes(out: &mut [u8]) {
     let st = unsafe { BCryptGenRandom(null_mut(), out.as_mut_ptr(), out.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
-    assert!(st == 0, "Das Betriebssystem liefert keine Zufallszahlen");
+    assert!(st == 0, "The operating system provides no random numbers");
 }
 
 pub fn default_data_dir() -> PathBuf {

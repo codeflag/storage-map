@@ -4,7 +4,7 @@
 
 ## Setup
 
-The **KI-Zugriff** view shows these snippets with the correct path filled in. On Windows the program is called `StorageMap.exe`.
+The **AI access** view shows these snippets with the correct path filled in. On Windows the program is called `StorageMap.exe`.
 
 Claude Desktop, Cursor and similar clients:
 
@@ -39,7 +39,7 @@ To try it without touching real drives, add `--demo` to the arguments.
 
 ## Access levels
 
-The default is `read`. Raising the level requires a warning to be confirmed by typing a word in the **KI-Zugriff** view.
+The default is `read`. Raising the level requires a warning to be confirmed by typing a word in the **AI access** view.
 
 | Level | Allows |
 |---|---|
@@ -115,7 +115,7 @@ Right before each entry is touched, it is checked again. Protected or changed fi
 - **A damaged settings file means `off`.**
 - **Protection rules apply on every level.** System folders, boot files and profile roots cannot be listed for removal. Folders containing another mounted file system are refused.
 - **File contents never leave the program.** Only names, sizes and dates do. The duplicate search reads files to hash them, but only reports which ones match.
-- **Every call is logged** with time, client, arguments and outcome in `mcp-audit.jsonl` next to the scans, and shown in the **KI-Zugriff** view. The log rotates at 2 MB.
+- **Every call is logged** with time, client, arguments and outcome in `mcp-audit.jsonl` next to the scans, and shown in the **AI access** view. The log rotates at 2 MB.
 - **The server uses stdio only.** It opens no port.
 
 What it cannot protect against:
@@ -130,4 +130,4 @@ Supported revisions: `2026-07-28` (stateless, via per-request metadata) and the 
 
 Clients using the handshake receive `notifications/tools/list_changed` when rights change. For stateless clients, `tools/list` carries `ttlMs: 0`.
 
-Rule titles and reasons are in German so far, everything else is in English.
+All texts from the server are in English, including rule titles, reasons and protection messages.

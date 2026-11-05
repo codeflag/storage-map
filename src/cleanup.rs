@@ -3,8 +3,9 @@
 //! Schutzregeln, existiert er noch, hat er sich seit dem Scan veraendert?
 
 use crate::guard::{self, Guard};
+use crate::i18n::{Lang, Text};
 use crate::index::*;
-use crate::{paths, platform};
+use crate::{paths, platform, tr};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -18,7 +19,7 @@ pub struct Cart {
 
 pub struct AddResult {
     pub added: usize,
-    pub blocked: Vec<(String, String)>,
+    pub blocked: Vec<(String, Text)>,
 }
 
 impl Cart {
@@ -34,7 +35,7 @@ impl Cart {
             let path = ix.path(id);
             if n.flags & F_MOUNT != 0 {
                 if res.blocked.len() < 20 {
-                    res.blocked.push((path, "Hier ist ein anderes Laufwerk eingehängt.".to_string()));
+                    res.blocked.push((path, Text::new("Another drive is mounted here.", "Hier ist ein anderes Laufwerk eingehängt.")));
                 }
                 continue;
             }
@@ -74,12 +75,41 @@ pub enum Mode {
     Move,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ItemResult {
     pub path: String,
     pub ok: bool,
     pub bytes: u64,
-    pub reason: String,
+    pub reason: Text,
+}
+
+const NO_REASON: Text = Text::new("", "");
+
+/// Ergebnis eines Laufs. Es bleibt bestehen, bis die Oberflaeche es abgeholt hat, und wird erst dann in deren Sprache ausgegeben.
+pub struct Report {
+    pub mode: Option<Mode>,
+    pub ok: usize,
+    pub failed: usize,
+    pub freed: u64,
+    pub failures: Vec<ItemResult>,
+}
+
+impl Report {
+    pub fn new(mode: Option<Mode>, results: &[ItemResult]) -> Report {
+        Report {
+            mode,
+            ok: results.iter().filter(|r| r.ok).count(),
+            failed: results.iter().filter(|r| !r.ok).count(),
+            freed: results.iter().filter(|r| r.ok).map(|r| r.bytes).sum(),
+            failures: results.iter().filter(|r| !r.ok).take(200).cloned().collect(),
+        }
+    }
+
+    pub fn json(&self, lang: Lang) -> Value {
+        let failures: Vec<Value> =
+            self.failures.iter().map(|f| json!({"path": f.path, "ok": f.ok, "bytes": f.bytes, "reason": f.reason.get(lang)})).collect();
+        json!({"mode": self.mode, "ok": self.ok, "failed": self.failed, "freed": self.freed, "failures": failures})
+    }
 }
 
 /// Snapshot eines Eintrags aus dem Index, damit waehrend der Dateioperation keine Sperre gehalten wird.
@@ -114,30 +144,36 @@ pub fn snapshot(ix: &Index, ids: &[u32]) -> Vec<Item> {
 
 /// Prueft, ob der Eintrag noch dem entspricht, was der Nutzer gesehen hat.
 /// Hat sich eine Datei seit dem Scan veraendert, bleibt sie sicherheitshalber liegen.
-pub fn precheck(item: &Item) -> Result<(), String> {
+pub fn precheck(item: &Item) -> Result<(), Text> {
     if let Guard::Block(why) = guard::check(&item.display) {
         return Err(why);
     }
     let long = platform::long_pathbuf(&item.exact);
     let meta = std::fs::symlink_metadata(&long).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            "Nicht mehr vorhanden.".to_string()
+            Text::new("No longer there.", "Nicht mehr vorhanden.")
         } else {
-            format!("Kein Zugriff: {e}")
+            tr!("No access: {e}", "Kein Zugriff: {e}")
         }
     })?;
     if item.is_dir != meta.is_dir() {
-        return Err("Hat sich seit dem Scan verändert. Bitte neu scannen.".into());
+        return Err(Text::new("Has changed since the scan. Please scan again.", "Hat sich seit dem Scan verändert. Bitte neu scannen."));
     }
     if item.is_dir && platform::has_mount_inside(&item.exact) {
-        return Err("In diesem Ordner ist ein anderes Laufwerk eingehängt. Er bleibt deshalb liegen.".into());
+        return Err(Text::new(
+            "Another drive is mounted inside this folder, so it stays in place.",
+            "In diesem Ordner ist ein anderes Laufwerk eingehängt. Er bleibt deshalb liegen.",
+        ));
     }
     if !item.is_dir {
         let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as u32).unwrap_or(0);
         // Die Laenge eines Symlinks ist die seines Ziel-Pfads. Der Scan zaehlt ihn mit 0.
         let size_changed = !meta.file_type().is_symlink() && meta.len() != item.size;
         if size_changed || mtime != item.mtime {
-            return Err("Datei wurde seit dem Scan geändert. Sie bleibt sicherheitshalber liegen.".into());
+            return Err(Text::new(
+                "File has changed since the scan. It stays in place to be safe.",
+                "Datei wurde seit dem Scan geändert. Sie bleibt sicherheitshalber liegen.",
+            ));
         }
     }
     Ok(())
@@ -163,9 +199,9 @@ pub fn recycle_all(items: &[Item], mut report: impl FnMut(ItemResult, Option<u32
         for it in batch.iter() {
             let gone = !exists(&it.exact);
             let reason = if gone {
-                String::new()
+                NO_REASON
             } else if rc == platform::CANCELLED_RC {
-                "Abgebrochen.".into()
+                Text::new("Cancelled.", "Abgebrochen.")
             } else {
                 platform::describe_remaining(&it.exact, it.is_dir)
             };
@@ -184,7 +220,10 @@ pub fn recycle_all(items: &[Item], mut report: impl FnMut(ItemResult, Option<u32
                     path: it.display.clone(),
                     ok: false,
                     bytes: it.alloc,
-                    reason: "Pfad zu lang für den Papierkorb. Bitte \"Endgültig löschen\" verwenden.".into(),
+                    reason: Text::new(
+                        "Path too long for the recycle bin. Please use \"Delete permanently\".",
+                        "Pfad zu lang für den Papierkorb. Bitte \"Endgültig löschen\" verwenden.",
+                    ),
                 },
                 None,
             );
@@ -216,9 +255,9 @@ pub fn permanent_all(items: &[Item], mut report: impl FnMut(ItemResult, Option<u
         let long = platform::long_pathbuf(&it.exact);
         let r = if it.is_dir { std::fs::remove_dir_all(&long) } else { std::fs::remove_file(&long) };
         match r {
-            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: String::new() }, Some(it.id)),
+            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: NO_REASON }, Some(it.id)),
             Err(e) => {
-                let reason = platform::friendly_error(&e).unwrap_or_else(|| format!("Fehler: {e}"));
+                let reason = platform::friendly_error(&e).unwrap_or_else(|| tr!("Error: {e}", "Fehler: {e}"));
                 report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason }, None);
             }
         }
@@ -233,14 +272,17 @@ pub fn move_all(items: &[Item], dest: &str, interactive: bool, mut report: impl 
             report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: why }, None);
             continue;
         }
-        let refuse = |reason: &str| ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: reason.to_string() };
+        let refuse = |reason: Text| ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason };
         if paths::inside(dest, &it.display) {
-            report(refuse("Das Ziel liegt in diesem Ordner selbst."), None);
+            report(refuse(Text::new("The target is inside this folder.", "Das Ziel liegt in diesem Ordner selbst.")), None);
             continue;
         }
         let target = it.exact.file_name().map(|n| Path::new(dest).join(n));
         if !interactive && target.as_deref().map(exists).unwrap_or(false) {
-            report(refuse("Am Ziel gibt es schon einen Eintrag mit diesem Namen."), None);
+            report(
+                refuse(Text::new("An entry with this name already exists at the target.", "Am Ziel gibt es schon einen Eintrag mit diesem Namen.")),
+                None,
+            );
             continue;
         }
         platform::move_to(std::slice::from_ref(&it.exact), Path::new(dest), interactive);
@@ -250,7 +292,7 @@ pub fn move_all(items: &[Item], dest: &str, interactive: bool, mut report: impl 
                 path: it.display.clone(),
                 ok: gone,
                 bytes: it.alloc,
-                reason: if gone { String::new() } else { "Nicht verschoben (abgebrochen oder Fehler).".into() },
+                reason: if gone { NO_REASON } else { Text::new("Not moved (cancelled or error).", "Nicht verschoben (abgebrochen oder Fehler).") },
             },
             if gone { Some(it.id) } else { None },
         );
@@ -268,8 +310,8 @@ pub fn sandbox_recycle_all(items: &[Item], trash: &Path, mut report: impl FnMut(
         let name = it.exact.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
         let target = trash.join(format!("{n:06}-{name}"));
         match std::fs::rename(platform::long_pathbuf(&it.exact), platform::long_pathbuf(&target)) {
-            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: String::new() }, Some(it.id)),
-            Err(e) => report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: format!("Fehler: {e}") }, None),
+            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: NO_REASON }, Some(it.id)),
+            Err(e) => report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: tr!("Error: {e}", "Fehler: {e}") }, None),
         }
     }
 }
@@ -283,8 +325,8 @@ pub fn sandbox_move_all(items: &[Item], dest: &Path, mut report: impl FnMut(Item
         }
         let name = it.exact.file_name().map(|x| x.to_os_string()).unwrap_or_default();
         match std::fs::rename(platform::long_pathbuf(&it.exact), platform::long_pathbuf(&dest.join(name))) {
-            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: String::new() }, Some(it.id)),
-            Err(e) => report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: format!("Fehler: {e}") }, None),
+            Ok(()) => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: NO_REASON }, Some(it.id)),
+            Err(e) => report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: tr!("Error: {e}", "Fehler: {e}") }, None),
         }
     }
 }
@@ -294,19 +336,9 @@ pub fn simulated_all(items: &[Item], mut report: impl FnMut(ItemResult, Option<u
     for it in items {
         match guard::check(&it.display) {
             Guard::Block(why) => report(ItemResult { path: it.display.clone(), ok: false, bytes: it.alloc, reason: why }, None),
-            _ => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: String::new() }, Some(it.id)),
+            _ => report(ItemResult { path: it.display.clone(), ok: true, bytes: it.alloc, reason: NO_REASON }, Some(it.id)),
         }
     }
-}
-
-pub fn results_json(results: &[ItemResult]) -> Value {
-    let failed: Vec<&ItemResult> = results.iter().filter(|r| !r.ok).take(200).collect();
-    json!({
-        "ok": results.iter().filter(|r| r.ok).count(),
-        "failed": results.iter().filter(|r| !r.ok).count(),
-        "freed": results.iter().filter(|r| r.ok).map(|r| r.bytes).sum::<u64>(),
-        "failures": failed,
-    })
 }
 
 #[cfg(test)]
@@ -371,9 +403,13 @@ mod tests {
         let items = snapshot(&ix, &[id_of(&ix, "a.bin"), id_of(&ix, "b.bin")]);
         assert!(precheck(&items[0]).is_ok());
         fs::write(&f, vec![2u8; 2000]).unwrap();
-        assert!(precheck(&items[0]).unwrap_err().contains("geändert"));
+        let changed = precheck(&items[0]).unwrap_err();
+        assert!(changed.en().contains("changed"));
+        assert!(changed.get(Lang::De).contains("geändert"));
         fs::remove_file(d.join("b.bin")).unwrap();
-        assert!(precheck(&items[1]).unwrap_err().contains("Nicht mehr vorhanden"));
+        let missing = precheck(&items[1]).unwrap_err();
+        assert!(missing.en().contains("No longer there"));
+        assert!(missing.get(Lang::De).contains("Nicht mehr vorhanden"));
         fs::remove_dir_all(d).unwrap();
     }
 

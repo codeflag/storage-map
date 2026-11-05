@@ -2,6 +2,7 @@
 
 use super::linux_pure::{self, Mount};
 use super::{clamp_secs, DriveInfo, RawEntry};
+use crate::i18n::Text;
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr, OsString};
 use std::io;
@@ -234,7 +235,7 @@ fn trash_for(path: &Path) -> io::Result<(PathBuf, Option<PathBuf>)> {
     }
     let all = all_mounts();
     let text = path.to_string_lossy();
-    let m = linux_pure::mount_of(&all, &text).ok_or_else(|| io::Error::other("Kein Einhängepunkt gefunden"))?;
+    let m = linux_pure::mount_of(&all, &text).ok_or_else(|| io::Error::other("No mount point found"))?;
     let top = PathBuf::from(&m.point);
     // Gemeinsamer `.Trash` nur, wenn er die Spezifikation erfuellt: echter Ordner mit Sticky-Bit.
     let shared = top.join(".Trash");
@@ -284,7 +285,7 @@ pub fn trash_one(path: &Path, trash: &Path, relative_to: Option<&Path>) -> io::R
             Err(e) => return Err(e),
         }
     }
-    Err(io::Error::other("Kein freier Name im Papierkorb"))
+    Err(io::Error::other("No free name in the trash"))
 }
 
 /// Verschiebt Pfade in den Papierkorb. Rueckgabe wie bei Windows: 0 oder der erste Fehlercode.
@@ -430,26 +431,33 @@ pub fn has_mount_inside(path: &Path) -> bool {
     all_mounts().iter().any(|m| m.point == *text || m.point.starts_with(&prefix))
 }
 
-pub fn friendly_error(e: &io::Error) -> Option<String> {
+const NO_PERMISSION: Text = Text::new("No permission. Try starting with sudo.", "Keine Berechtigung. Evtl. mit sudo starten.");
+
+pub fn friendly_error(e: &io::Error) -> Option<Text> {
     match e.raw_os_error() {
-        Some(libc::EACCES) | Some(libc::EPERM) => Some("Keine Berechtigung. Evtl. mit sudo starten.".to_string()),
-        Some(libc::EBUSY) | Some(libc::ETXTBSY) => Some("Wird gerade von einem Programm benutzt.".to_string()),
-        Some(libc::EEXIST) => Some("Am Ziel gibt es schon einen Eintrag mit diesem Namen.".to_string()),
-        Some(libc::EROFS) => Some("Das Laufwerk ist schreibgeschützt.".to_string()),
+        Some(libc::EACCES) | Some(libc::EPERM) => Some(NO_PERMISSION),
+        Some(libc::EBUSY) | Some(libc::ETXTBSY) => Some(Text::new("Currently in use by a program.", "Wird gerade von einem Programm benutzt.")),
+        Some(libc::EEXIST) => {
+            Some(Text::new("An entry with this name already exists at the target.", "Am Ziel gibt es schon einen Eintrag mit diesem Namen."))
+        }
+        Some(libc::EROFS) => Some(Text::new("The drive is read-only.", "Das Laufwerk ist schreibgeschützt.")),
         _ => None,
     }
 }
 
-pub fn describe_remaining(p: &Path, is_dir: bool) -> String {
+pub fn describe_remaining(p: &Path, is_dir: bool) -> Text {
     let parent_ok =
         p.parent().and_then(|x| CString::new(x.as_os_str().as_bytes()).ok()).map(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 });
     if parent_ok == Some(false) {
-        return "Keine Berechtigung. Evtl. mit sudo starten.".into();
+        return NO_PERMISSION;
     }
     if is_dir {
-        "Konnte nicht (vollständig) entfernt werden. Wird evtl. gerade benutzt oder braucht mehr Rechte.".into()
+        Text::new(
+            "Could not be removed (completely). It may be in use or need more rights.",
+            "Konnte nicht (vollständig) entfernt werden. Wird evtl. gerade benutzt oder braucht mehr Rechte.",
+        )
     } else {
-        "Konnte nicht entfernt werden.".into()
+        Text::new("Could not be removed.", "Konnte nicht entfernt werden.")
     }
 }
 
@@ -580,7 +588,7 @@ pub fn open_url(url: &str) -> bool {
 pub fn random_bytes(out: &mut [u8]) {
     use std::io::Read;
     let ok = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(out));
-    assert!(ok.is_ok(), "Das Betriebssystem liefert keine Zufallszahlen");
+    assert!(ok.is_ok(), "The operating system provides no random numbers");
 }
 
 pub fn default_data_dir() -> PathBuf {

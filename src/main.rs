@@ -10,6 +10,7 @@ mod demo;
 mod dupes;
 mod guard;
 mod history;
+mod i18n;
 mod index;
 mod junk;
 mod mcp;
@@ -204,7 +205,7 @@ fn headless_scan(root: &str, mode: &server::RunMode) -> i32 {
     let root = match paths::normalize(root) {
         Ok(r) => r,
         Err(e) => {
-            complain!("Error: {e}");
+            complain!("Error: {}", e.en());
             return 2;
         }
     };
@@ -233,7 +234,7 @@ fn headless_scan(root: &str, mode: &server::RunMode) -> i32 {
             0
         }
         Err(e) => {
-            complain!("Error: {e}");
+            complain!("Error: {}", e.en());
             1
         }
     }
@@ -281,7 +282,7 @@ fn main() {
         match paths::normalize(sb) {
             Ok(r) => server::RunMode::Sandbox(r),
             Err(e) => {
-                complain!("Error: {e}");
+                complain!("Error: {}", e.en());
                 std::process::exit(2);
             }
         }

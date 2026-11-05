@@ -1,6 +1,8 @@
 // Gemeinsame Helfer. Datei- und Ordnernamen sind fremde Daten: Sie landen immer ueber
 // textContent im DOM, nie ueber innerHTML.
 
+import { t, lang, locale } from './i18n.js';
+
 let token = '';
 
 // Das Fenster startet mit einem Einmal-Code und tauscht ihn gegen das Zugriffs-Token.
@@ -24,7 +26,6 @@ export async function initToken() {
     history.replaceState(null, '', u.pathname + u.hash);
   }
 }
-export const authToken = () => token;
 
 export async function api(path, body) {
   const opt = { headers: { 'X-SM-Token': token } };
@@ -33,10 +34,19 @@ export async function api(path, body) {
     opt.body = JSON.stringify(body);
     opt.headers['Content-Type'] = 'application/json';
   }
-  const r = await fetch('/api/' + path, opt);
+  // Die Sprache steht in der Adresse: So gilt sie auch fuer den CSV-Export, den der Browser selbst abruft.
+  const r = await fetch(`/api/${path}${path.includes('?') ? '&' : '?'}lang=${lang()}`, opt);
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `Fehler ${r.status}`);
+  if (!r.ok) {
+    const e = new Error(j.error || t('api.error', { status: r.status }));
+    e.status = r.status;
+    throw e;
+  }
   return j;
+}
+
+export function downloadCsv(params) {
+  location.href = '/api/export?' + qs({ ...params, t: token, lang: lang() });
 }
 
 export function qs(obj) {
@@ -48,9 +58,13 @@ export function qs(obj) {
 }
 
 // Windows rechnet in 1024er-Schritten und nennt das GB. Wir zeigen dasselbe, damit die Zahlen zum Dateimanager passen.
-const nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 });
-const nf1 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const nf2 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf = (digits) => new Intl.NumberFormat(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const nf0 = { format: (v) => nf(0).format(v) };
+const nf1 = { format: (v) => nf(1).format(v) };
+const nf2 = { format: (v) => nf(2).format(v) };
+
+/// Deutsch schreibt `12 %`, Englisch `12%`.
+export const withPct = (s) => (lang() === 'de' ? `${s} %` : `${s}%`);
 
 export function fmtBytes(n) {
   if (n === null || n === undefined) return '–';
@@ -62,27 +76,27 @@ export function fmtBytes(n) {
   return `${s} ${units[i]}`;
 }
 export const fmtNum = (n) => (n === null || n === undefined ? '–' : nf0.format(n));
-export const fmtPct = (x) => (x >= 0.1 || x === 0 ? nf0.format(x * 100) : x >= 0.001 ? nf1.format(x * 100) : '< 0,1') + ' %';
+export const fmtPct = (x) => withPct(x >= 0.1 || x === 0 ? nf0.format(x * 100) : x >= 0.001 ? nf1.format(x * 100) : `< ${nf1.format(0.1)}`);
 
 export function fmtDate(ts) {
   if (!ts) return '–';
-  return new Date(ts * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return new Date(ts * 1000).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 export function fmtDateTime(ts) {
   if (!ts) return '–';
-  return new Date(ts * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(ts * 1000).toLocaleString(locale(), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 export function fmtAgo(ts) {
   if (!ts) return '–';
   const s = Date.now() / 1000 - ts;
-  if (s < 90) return 'gerade eben';
-  if (s < 3600) return `vor ${Math.round(s / 60)} Min.`;
-  if (s < 86400) return `vor ${Math.round(s / 3600)} Std.`;
+  if (s < 90) return t('ago.now');
+  if (s < 3600) return t('ago.min', { n: Math.round(s / 60) });
+  if (s < 86400) return t('ago.hours', { n: Math.round(s / 3600) });
   const d = s / 86400;
-  if (d < 2) return 'gestern';
-  if (d < 60) return `vor ${Math.round(d)} Tagen`;
-  if (d < 700) return `vor ${Math.round(d / 30.4)} Monaten`;
-  return `vor ${Math.round(d / 365)} Jahren`;
+  if (d < 2) return t('ago.yesterday');
+  if (d < 60) return t('ago.days', { n: Math.round(d) });
+  if (d < 700) return t('ago.months', { n: Math.round(d / 30.4) });
+  return t('ago.years', { n: Math.round(d / 365) });
 }
 export function fmtDuration(ms) {
   const s = Math.round(ms / 1000);
@@ -166,7 +180,8 @@ export function icon(name) {
 }
 
 export const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-export const CAT_NAMES = ['Videos', 'Bilder', 'Audio', 'Dokumente', 'Archive & Abbilder', 'Programme & Spiele', 'Entwicklung & Daten', 'System & Temp', 'Sonstige'];
+export const catName = (i) => t(`cat.${i}`);
+export const CAT_COUNT = 9;
 export const catVar = (i) => `var(--c${i})`;
 /// Textfarbe auf einer Kategorie-Flaeche: weiss, ausser auf Gelb.
 export const catInk = (i) => (i === 3 ? '#0b0b0b' : '#ffffff');
@@ -261,24 +276,23 @@ export function dialog({ title, body, actions = [], wide, onClose }) {
 // Wird von app.js gefuellt, damit die Ansichten keine Importschleifen brauchen.
 export const App = {};
 
-export const RISK_LABEL = { safe: 'Sicher', caution: 'Vorsicht', review: 'Prüfen', info: 'Info' };
 export function riskBadge(r) {
   const ic = { safe: 'shield', caution: 'warn', review: 'warn', info: 'info' }[r] || 'info';
-  return h('span', { class: 'risk ' + r }, icon(ic), RISK_LABEL[r] || r);
+  return h('span', { class: 'risk ' + r }, icon(ic), t(`risk.${r}`));
 }
 
 export function rowMenu(row, x, y) {
   const blocked = row.guard && row.guard.level === 'block';
   const isDir = row.dir;
   menu(x, y, [
-    { label: App.isWindows() ? 'Im Explorer zeigen' : 'Im Dateimanager zeigen', icon: 'explorer', run: () => App.reveal(row.id) },
-    { label: isDir ? 'Ordner öffnen' : 'Datei öffnen', icon: 'open', run: () => App.open(row.id) },
+    { label: App.isWindows() ? t('menu.showExplorer') : t('menu.showFm'), icon: 'explorer', run: () => App.reveal(row.id) },
+    { label: isDir ? t('menu.openFolder') : t('menu.openFile'), icon: 'open', run: () => App.open(row.id) },
     '-',
-    { label: 'In der Karte zeigen', icon: 'map', run: () => App.go('map', isDir ? row.id : row.parent) },
-    { label: 'Im Baum zeigen', icon: 'tree', run: () => App.go('tree', row.id) },
-    { label: 'Pfad kopieren', icon: 'copy', run: () => App.copyPath(row.id, row.path) },
+    { label: t('menu.showMap'), icon: 'map', run: () => App.go('map', isDir ? row.id : row.parent) },
+    { label: t('menu.showTree'), icon: 'tree', run: () => App.go('tree', row.id) },
+    { label: t('common.copyPath'), icon: 'copy', run: () => App.copyPath(row.id, row.path) },
     '-',
-    { label: blocked ? 'Geschützt' : 'Zur Aufräumliste', icon: blocked ? 'lock' : 'plus', disabled: blocked, run: () => App.addToCart([row.id]) },
+    { label: blocked ? t('common.protected') : t('common.addToList'), icon: blocked ? 'lock' : 'plus', disabled: blocked, run: () => App.addToCart([row.id]) },
   ]);
 }
 

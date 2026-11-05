@@ -54,7 +54,9 @@ The test `recycle_moves_file_away_and_leaves_others` puts a file into the real r
 | `src/mcp.rs` | MCP server |
 | `src/config.rs` | Settings |
 | `src/demo.rs` | Invented data and test folders |
+| `src/i18n.rs` | Texts of the backend in both languages |
 | `ui/` | Interface without dependencies: HTML, CSS, Canvas |
+| `ui/js/i18n.js` | Dictionary of the interface |
 | `tests/` | Tests of the finished program from the outside |
 
 ## Guidelines
@@ -62,7 +64,8 @@ The test `recycle_moves_file_away_and_leaves_others` puts a file into the real r
 - No dependency without a good reason. The interface has none at all.
 - Names of files and folders are untrusted data. In the interface they only reach the DOM through `textContent`.
 - New removal paths must go through `guard` and `cleanup::precheck`.
-- Comments and interface text are in German so far. New comments may be in English.
+- Interface text is in English and German. New text goes into `ui/js/i18n.js` or, for messages from the backend, into a `Text` with both languages. A test checks that every key used in `ui/js` exists.
+- Comments are partly in German. New comments may be in English.
 - Note user-visible changes in `CHANGELOG.md` under `[Unreleased]`.
 
 By contributing, you agree that your contribution is licensed under the MIT license.

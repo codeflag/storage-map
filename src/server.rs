@@ -2,16 +2,17 @@
 //! API-Aufruf das Start-Token. So kann keine Webseite im Browser an die Loeschfunktion heran.
 
 use crate::analysis::{self, now_secs, FileQuery};
-use crate::cleanup::{self, Cart, ItemResult, Mode};
+use crate::cleanup::{self, Cart, ItemResult, Mode, Report};
 use crate::config::{self, Level};
 use crate::dupes::{self, DupEngine, DupFolderGroup, DupGroup, DupParams};
 use crate::guard::{self, Guard};
 use crate::history;
+use crate::i18n::{Lang, Text};
 use crate::index::*;
 use crate::junk::{self, JunkReport};
 use crate::paths::{self, inside};
 use crate::scan::{self, ScanProgress};
-use crate::{assets, demo, mcp, platform};
+use crate::{assets, category, demo, mcp, platform, tr};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -28,7 +29,7 @@ pub struct CleanupState {
     pub total: usize,
     pub done: usize,
     pub results: Vec<ItemResult>,
-    pub last: Option<Value>,
+    pub last: Option<Report>,
 }
 
 /// In welchem Betrieb laeuft das Programm? Nur `Normal` fasst echte Laufwerke an.
@@ -122,7 +123,14 @@ fn restart_args() -> String {
     args
 }
 
-pub const REFUSED: &str = "Im Test-Betrieb ist nur der Testordner erlaubt.";
+pub const REFUSED: Text = Text::new("In a test mode, only the test folder is allowed.", "Im Test-Betrieb ist nur der Testordner erlaubt.");
+const BUSY: Text = Text::new("Another operation is still running.", "Es läuft noch ein anderer Vorgang.");
+const NO_SCAN: Text = Text::new("No scan is loaded yet.", "Noch kein Scan geladen.");
+const TEST_FOLDER: Text = Text::new("Test folder", "Testordner");
+
+/// Die Woerter, mit denen sich Gefaehrliches bestaetigen laesst. Die Oberflaeche zeigt das ihrer Sprache.
+const CONFIRM_DELETE: [&str; 2] = ["DELETE", "LÖSCHEN"];
+const CONFIRM_WRITE: [&str; 2] = ["WRITE", "SCHREIBEN"];
 
 pub struct App {
     pub token: String,
@@ -133,9 +141,9 @@ pub struct App {
     /// Zaehlt jede Aenderung am Index, damit Caches wissen, wann sie veraltet sind.
     pub gen: AtomicU64,
     pub scan: Mutex<Option<Arc<ScanProgress>>>,
-    pub scan_error: Mutex<Option<String>>,
+    pub scan_error: Mutex<Option<Text>>,
     pub junk: Mutex<Option<(u64, Arc<JunkReport>)>>,
-    pub summary: Mutex<Option<(u64, Arc<Value>)>>,
+    pub summary: Mutex<Option<(u64, Lang, Arc<Value>)>>,
     pub dup: Arc<DupEngine>,
     pub dup_folders: Mutex<Option<(u64, Arc<Vec<DupFolderGroup>>)>>,
     pub cart: Mutex<Cart>,
@@ -158,10 +166,10 @@ fn modified(p: &std::path::Path) -> Option<SystemTime> {
     std::fs::metadata(p).ok()?.modified().ok()
 }
 
-pub type Res = Result<Value, (u16, String)>;
+pub type Res = Result<Value, (u16, Text)>;
 
-fn err<T>(code: u16, m: impl Into<String>) -> Result<T, (u16, String)> {
-    Err((code, m.into()))
+fn err<T>(code: u16, m: Text) -> Result<T, (u16, Text)> {
+    Err((code, m))
 }
 
 impl App {
@@ -339,9 +347,9 @@ impl App {
 }
 
 /// Fuehrt einen Scan vollstaendig aus: lesen, auswerten, speichern.
-pub fn run_scan(root: &str, progress: &ScanProgress, drive: Option<platform::DriveInfo>, mode: &RunMode) -> Result<Index, String> {
+pub fn run_scan(root: &str, progress: &ScanProgress, drive: Option<platform::DriveInfo>, mode: &RunMode) -> Result<Index, Text> {
     if !mode.allows(root) {
-        return Err(REFUSED.into());
+        return Err(REFUSED);
     }
     let t0 = Instant::now();
     let mut ix = scan::scan(root, progress)?;
@@ -367,7 +375,7 @@ pub fn run_scan(root: &str, progress: &ScanProgress, drive: Option<platform::Dri
     }
     *progress.phase.lock().unwrap() = "save".into();
     if let Err(e) = history::save_scan(&ix) {
-        let _ = writeln!(std::io::stderr(), "Scan konnte nicht gespeichert werden: {e}");
+        let _ = writeln!(std::io::stderr(), "Could not save the scan: {e}");
     }
     Ok(ix)
 }
@@ -375,7 +383,7 @@ pub fn run_scan(root: &str, progress: &ScanProgress, drive: Option<platform::Dri
 pub fn start_scan(app: &Arc<App>, raw: &str) -> Res {
     let root = paths::normalize(raw).map_err(|e| (400, e))?;
     if app.is_busy() {
-        return err(409, "Es läuft noch ein anderer Vorgang.");
+        return err(409, BUSY);
     }
     if !app.mode.allows(&root) {
         return err(403, REFUSED);
@@ -383,9 +391,10 @@ pub fn start_scan(app: &Arc<App>, raw: &str) -> Res {
     if let RunMode::Demo { scale } = app.mode {
         return simulate_scan(app, root, scale);
     }
-    let meta = std::fs::metadata(platform::long_pathbuf(std::path::Path::new(&root))).map_err(|e| (400, format!("Pfad nicht lesbar: {e}")))?;
+    let meta = std::fs::metadata(platform::long_pathbuf(std::path::Path::new(&root)))
+        .map_err(|e| (400, tr!("Path not readable: {e}", "Pfad nicht lesbar: {e}")))?;
     if !meta.is_dir() {
-        return err(400, "Das ist kein Ordner.");
+        return err(400, Text::new("This is not a folder.", "Das ist kein Ordner."));
     }
     let drive = if app.mode.is_normal() { platform::volume_root(&root).map(|r| platform::volume_info(&r)) } else { None };
     let media = if app.mode.is_normal() { drive.as_ref().map(|d| d.media.clone()).unwrap_or_else(|| "net".into()) } else { "ssd".to_string() };
@@ -451,7 +460,7 @@ fn simulate_scan(app: &Arc<App>, root: String, scale: u64) -> Res {
     Ok(json!({"ok": true, "root": d.root}))
 }
 
-pub fn status(app: &App) -> Value {
+pub fn status(app: &App, lang: Lang) -> Value {
     app.last_ping.store(now_secs(), Relaxed);
     let scan = app.scan.lock().unwrap().clone();
     let scan_json = scan.map(|p| {
@@ -519,7 +528,7 @@ pub fn status(app: &App) -> Value {
         "canElevate": platform::CAN_RESTART_ELEVATED && app.mode.is_normal(),
         "index": index_json,
         "scan": scan_json,
-        "scanError": *app.scan_error.lock().unwrap(),
+        "scanError": app.scan_error.lock().unwrap().as_ref().map(|e| e.get(lang)),
         "dups": {
             "running": d.running.load(Relaxed),
             "done": d.done.load(Relaxed),
@@ -537,7 +546,7 @@ pub fn status(app: &App) -> Value {
             "mode": cl.mode,
             "total": cl.total,
             "done": cl.done,
-            "last": cl.last,
+            "last": cl.last.as_ref().map(|r| r.json(lang)),
         },
     })
 }
@@ -601,22 +610,22 @@ fn file_query(m: &HashMap<String, String>) -> FileQuery {
     }
 }
 
-pub fn with_index<T>(app: &App, f: impl FnOnce(&Index) -> Result<T, (u16, String)>) -> Result<T, (u16, String)> {
+pub fn with_index<T>(app: &App, f: impl FnOnce(&Index) -> Result<T, (u16, Text)>) -> Result<T, (u16, Text)> {
     let g = app.index.read().unwrap();
     match g.as_ref() {
         Some(ix) => f(ix),
-        None => err(404, "Noch kein Scan geladen."),
+        None => err(404, NO_SCAN),
     }
 }
 
-fn check_id(ix: &Index, id: u32) -> Result<u32, (u16, String)> {
+fn check_id(ix: &Index, id: u32) -> Result<u32, (u16, Text)> {
     match ix.nodes.get(id as usize) {
         Some(n) if !n.is_deleted() => Ok(id),
-        _ => err(404, "Eintrag gibt es nicht mehr."),
+        _ => err(404, Text::new("This entry no longer exists.", "Eintrag gibt es nicht mehr.")),
     }
 }
 
-fn browse(app: &App, path: &str) -> Res {
+fn browse(app: &App, path: &str, lang: Lang) -> Res {
     match &app.mode {
         RunMode::Normal => {}
         RunMode::Demo { .. } => {
@@ -627,12 +636,12 @@ fn browse(app: &App, path: &str) -> Res {
             }
             let root = paths::normalize(path).map_err(|e| (400, e))?;
             let is_drive = demo::drives().iter().any(|d| d.root == root);
-            let dirs = if is_drive { vec![json!({"name": "Auslagerung", "path": paths::join(&root, "Auslagerung")})] } else { vec![] };
+            let dirs = if is_drive { vec![json!({"name": "Offload", "path": paths::join(&root, "Offload")})] } else { vec![] };
             return Ok(json!({"path": root, "parent": paths::parent_of(&root).unwrap_or_default(), "dirs": dirs}));
         }
         RunMode::Sandbox(sb) => {
             if path.is_empty() {
-                return Ok(json!({"path": "", "parent": Value::Null, "dirs": [{"name": "Testordner", "path": sb}]}));
+                return Ok(json!({"path": "", "parent": Value::Null, "dirs": [{"name": TEST_FOLDER.get(lang), "path": sb}]}));
             }
             let root = paths::normalize(path).map_err(|e| (400, e))?;
             if !inside(&root, sb) {
@@ -650,7 +659,8 @@ fn browse(app: &App, path: &str) -> Res {
         return Ok(json!({"path": "", "parent": Value::Null, "dirs": rows}));
     }
     let root = paths::normalize(path).map_err(|e| (400, e))?;
-    let rd = std::fs::read_dir(platform::long_pathbuf(std::path::Path::new(&root))).map_err(|e| (400, format!("Ordner nicht lesbar: {e}")))?;
+    let rd = std::fs::read_dir(platform::long_pathbuf(std::path::Path::new(&root)))
+        .map_err(|e| (400, tr!("Folder not readable: {e}", "Ordner nicht lesbar: {e}")))?;
     let mut rows = vec![];
     for e in rd.flatten() {
         let Ok(t) = e.file_type() else { continue };
@@ -664,13 +674,13 @@ fn browse(app: &App, path: &str) -> Res {
     Ok(json!({"path": root, "parent": paths::parent_of(&root).unwrap_or_default(), "dirs": rows}))
 }
 
-pub fn drives_json(app: &App) -> Value {
+pub fn drives_json(app: &App, lang: Lang) -> Value {
     let drives = match &app.mode {
         RunMode::Normal => platform::list_drives(Duration::from_millis(1500)),
         RunMode::Demo { .. } => demo::drives(),
         RunMode::Sandbox(sb) => vec![platform::DriveInfo {
             root: sb.clone(),
-            label: "Testordner".into(),
+            label: TEST_FOLDER.get(lang).into(),
             fs: "TEST".into(),
             kind: "fixed".into(),
             media: "ssd".into(),
@@ -694,7 +704,7 @@ pub fn drives_json(app: &App) -> Value {
 
 pub fn start_dups(app: &Arc<App>, body: &Value) -> Res {
     if app.is_busy() {
-        return err(409, "Es läuft noch ein anderer Vorgang.");
+        return err(409, BUSY);
     }
     let min_size = body["minSize"].as_u64().unwrap_or(1 << 20);
     let quick = body["quick"].as_bool().unwrap_or(false);
@@ -704,7 +714,7 @@ pub fn start_dups(app: &Arc<App>, body: &Value) -> Res {
     }
     let (media, cands_exist) = with_index(app, |ix| Ok((ix.meta.volume.media.clone(), !ix.nodes.is_empty())))?;
     if !cands_exist {
-        return err(400, "Nichts zu prüfen.");
+        return err(400, Text::new("Nothing to check.", "Nichts zu prüfen."));
     }
     let threads = match media.as_str() {
         "hdd" => 2,
@@ -782,6 +792,7 @@ fn simulate_dups(app: &Arc<App>, min_size: u64, include_system: bool) -> Res {
 }
 
 fn dups_json(app: &App, m: &HashMap<String, String>) -> Res {
+    let lang = Lang::of_query(m);
     let offset = num(m, "offset", 0usize);
     let limit = num(m, "limit", 50usize).min(500);
     with_index(app, |ix| {
@@ -804,7 +815,7 @@ fn dups_json(app: &App, m: &HashMap<String, String>) -> Res {
                     "alloc": g.alloc,
                     "wasted": g.alloc * (ids.len() as u64 - 1),
                     "verified": g.verified,
-                    "files": ids.iter().map(|i| analysis::row(ix, *i)).collect::<Vec<_>>(),
+                    "files": ids.iter().map(|i| analysis::row(ix, *i, lang)).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -813,6 +824,7 @@ fn dups_json(app: &App, m: &HashMap<String, String>) -> Res {
 }
 
 fn dup_folders_json(app: &App, m: &HashMap<String, String>) -> Res {
+    let lang = Lang::of_query(m);
     let min = num(m, "min", 50u64 << 20);
     let system = m.get("system").map(|s| s == "1").unwrap_or(false);
     with_index(app, |ix| {
@@ -839,7 +851,7 @@ fn dup_folders_json(app: &App, m: &HashMap<String, String>) -> Res {
                     "alloc": g.alloc,
                     "fileCount": g.files,
                     "wasted": g.alloc * (g.ids.len() as u64 - 1),
-                    "folders": g.ids.iter().map(|i| analysis::row(ix, *i)).collect::<Vec<_>>(),
+                    "folders": g.ids.iter().map(|i| analysis::row(ix, *i, lang)).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -847,7 +859,7 @@ fn dup_folders_json(app: &App, m: &HashMap<String, String>) -> Res {
     })
 }
 
-fn junk_json(app: &App) -> Res {
+fn junk_json(app: &App, lang: Lang) -> Res {
     with_index(app, |ix| {
         let rep = app.junk_report(ix);
         let rules: Vec<Value> = junk::rules()
@@ -857,9 +869,9 @@ fn junk_json(app: &App) -> Res {
             .map(|(rule, r)| {
                 json!({
                     "id": rule.id,
-                    "group": rule.group,
-                    "title": rule.title,
-                    "why": rule.why,
+                    "group": rule.group.get(lang),
+                    "title": rule.title.get(lang),
+                    "why": rule.why.get(lang),
                     "risk": rule.risk,
                     "action": rule.action,
                     "alloc": r.alloc,
@@ -893,6 +905,7 @@ fn junk_json(app: &App) -> Res {
 }
 
 fn junk_items(app: &App, m: &HashMap<String, String>) -> Res {
+    let lang = Lang::of_query(m);
     let rule = m.get("rule").cloned().unwrap_or_default();
     let offset = num(m, "offset", 0usize);
     let limit = num(m, "limit", 100usize).min(1000);
@@ -901,27 +914,28 @@ fn junk_items(app: &App, m: &HashMap<String, String>) -> Res {
         let items: &[u32] = if rule == "empty" {
             &rep.empty_dirs
         } else {
-            let Some(ri) = junk::rule_by_id(&rule) else { return err(404, "Unbekannte Regel") };
+            let Some(ri) = junk::rule_by_id(&rule) else { return err(404, Text::new("Unknown rule", "Unbekannte Regel")) };
             &rep.results[ri].items
         };
-        let rows: Vec<Value> = items.iter().skip(offset).take(limit).map(|i| analysis::row(ix, *i)).collect();
+        let rows: Vec<Value> = items.iter().skip(offset).take(limit).map(|i| analysis::row(ix, *i, lang)).collect();
         Ok(json!({"total": items.len(), "rows": rows}))
     })
 }
 
 fn cart_json(app: &App, m: &HashMap<String, String>) -> Res {
+    let lang = Lang::of_query(m);
     let limit = num(m, "limit", 1000usize).min(5000);
     with_index(app, |ix| {
         let c = app.cart.lock().unwrap();
         let mut ids: Vec<u32> = c.ids.iter().copied().collect();
         ids.sort_by_key(|i| std::cmp::Reverse(ix.nodes[*i as usize].alloc));
-        let rows: Vec<Value> = ids.iter().take(limit).map(|i| analysis::row(ix, *i)).collect();
+        let rows: Vec<Value> = ids.iter().take(limit).map(|i| analysis::row(ix, *i, lang)).collect();
         let warn = ids.iter().filter(|i| matches!(guard::check(&ix.path(**i)), Guard::Warn(_))).count();
         Ok(json!({"count": ids.len(), "bytes": c.bytes(ix), "warnings": warn, "rows": rows}))
     })
 }
 
-fn cart_add(app: &App, body: &Value) -> Res {
+fn cart_add(app: &App, body: &Value, lang: Lang) -> Res {
     with_index(app, |ix| {
         let mut ids: Vec<u32> = body["ids"].as_array().map(|a| a.iter().filter_map(|v| v.as_u64().map(|x| x as u32)).collect()).unwrap_or_default();
         if let Some(rule) = body["rule"].as_str() {
@@ -949,7 +963,7 @@ fn cart_add(app: &App, body: &Value) -> Res {
                 "count": cart.ids.len(),
                 "countBefore": before,
                 "bytes": cart.bytes(ix),
-                "blocked": r.blocked.iter().map(|(p, w)| json!({"path": p, "why": w})).collect::<Vec<_>>(),
+                "blocked": r.blocked.iter().map(|(p, w)| json!({"path": p, "why": w.get(lang)})).collect::<Vec<_>>(),
             })
         };
         app.persist_cart(ix);
@@ -959,16 +973,22 @@ fn cart_add(app: &App, body: &Value) -> Res {
 
 pub fn start_cleanup(app: &Arc<App>, body: &Value) -> Res {
     if app.is_busy() {
-        return err(409, "Es läuft noch ein anderer Vorgang.");
+        return err(409, BUSY);
     }
     let mode = match body["mode"].as_str() {
         Some("recycle") => Mode::Recycle,
         Some("permanent") => Mode::Permanent,
         Some("move") => Mode::Move,
-        _ => return err(400, "Unbekannter Modus."),
+        _ => return err(400, Text::new("Unknown mode.", "Unbekannter Modus.")),
     };
-    if mode == Mode::Permanent && body["confirm"].as_str() != Some("LÖSCHEN") {
-        return err(400, "Endgültiges Löschen muss mit dem Wort LÖSCHEN bestätigt werden.");
+    if mode == Mode::Permanent && !CONFIRM_DELETE.contains(&body["confirm"].as_str().unwrap_or("")) {
+        return err(
+            400,
+            Text::new(
+                "Permanent deletion must be confirmed with the word DELETE.",
+                "Endgültiges Löschen muss mit dem Wort LÖSCHEN bestätigt werden.",
+            ),
+        );
     }
     let dest = body["dest"].as_str().unwrap_or("").to_string();
     if mode == Mode::Move {
@@ -979,7 +999,7 @@ pub fn start_cleanup(app: &Arc<App>, body: &Value) -> Res {
             }
         }
         if !matches!(app.mode, RunMode::Demo { .. }) && !std::path::Path::new(&d).is_dir() {
-            return err(400, "Zielordner gibt es nicht.");
+            return err(400, Text::new("The target folder does not exist.", "Zielordner gibt es nicht."));
         }
     }
     let items = with_index(app, |ix| {
@@ -987,7 +1007,7 @@ pub fn start_cleanup(app: &Arc<App>, body: &Value) -> Res {
         Ok(cleanup::snapshot(ix, &ids))
     })?;
     if items.is_empty() {
-        return err(400, "Die Aufräumliste ist leer.");
+        return err(400, Text::new("The cleanup list is empty.", "Die Aufräumliste ist leer."));
     }
     if let RunMode::Sandbox(sb) = &app.mode {
         if items.iter().any(|i| !inside(&i.display, sb)) {
@@ -1003,7 +1023,13 @@ pub fn start_cleanup(app: &Arc<App>, body: &Value) -> Res {
             RunMode::Sandbox(_) => true,
         };
         if !has_bin {
-            return err(400, "Dieses Laufwerk hat keinen Papierkorb. Bitte verschieben oder endgültig löschen.");
+            return err(
+                400,
+                Text::new(
+                    "This drive has no recycle bin. Please move or delete permanently.",
+                    "Dieses Laufwerk hat keinen Papierkorb. Bitte verschieben oder endgültig löschen.",
+                ),
+            );
         }
     }
     {
@@ -1067,9 +1093,7 @@ pub fn start_cleanup(app: &Arc<App>, body: &Value) -> Res {
         }
         app2.gen.fetch_add(1, Relaxed);
         let mut c = app2.cleanup.lock().unwrap();
-        let mut last = cleanup::results_json(&c.results);
-        last["mode"] = json!(c.mode);
-        c.last = Some(last);
+        c.last = Some(Report::new(c.mode, &c.results));
         c.running = false;
         c.results.clear();
     });
@@ -1100,23 +1124,30 @@ pub fn fmt_date(ts: u32) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-fn export(app: &App, m: &HashMap<String, String>) -> Result<(String, String), (u16, String)> {
+fn export(app: &App, m: &HashMap<String, String>) -> Result<(String, String), (u16, Text)> {
     let what = m.get("what").map(|s| s.as_str()).unwrap_or("files");
+    let lang = Lang::of_query(m);
+    // Excel erwartet im deutschen Sprachraum das Semikolon, sonst das Komma.
+    let (head, sep, folder, file) = match lang {
+        Lang::En => ("Path,Type,Used (bytes),Size (bytes),Modified,Opened,Created,Files", ",", "Folder", "File"),
+        Lang::De => ("Pfad;Typ;Belegt (Bytes);Größe (Bytes);Geändert;Geöffnet;Erstellt;Dateien", ";", "Ordner", "Datei"),
+    };
     with_index(app, |ix| {
-        let mut out = String::from("\u{feff}Pfad;Typ;Belegt (Bytes);Größe (Bytes);Geändert;Geöffnet;Erstellt;Dateien\r\n");
+        let mut out = format!("\u{feff}{head}\r\n");
         let mut push = |id: u32| {
             let n = &ix.nodes[id as usize];
-            out.push_str(&format!(
-                "{};{};{};{};{};{};{};{}\r\n",
+            let cells = [
                 csv_escape(&ix.path(id)),
-                if n.is_dir() { "Ordner" } else { "Datei" },
-                n.alloc,
-                n.size,
+                if n.is_dir() { folder } else { file }.to_string(),
+                n.alloc.to_string(),
+                n.size.to_string(),
                 fmt_date(if n.is_dir() { n.newest } else { n.mtime }),
                 fmt_date(n.atime),
                 fmt_date(n.ctime),
-                if n.is_dir() { n.files } else { 1 },
-            ));
+                if n.is_dir() { n.files } else { 1 }.to_string(),
+            ];
+            out.push_str(&cells.join(sep));
+            out.push_str("\r\n");
         };
         let name = match what {
             "cart" => {
@@ -1124,7 +1155,7 @@ fn export(app: &App, m: &HashMap<String, String>) -> Result<(String, String), (u
                 for id in ids {
                     push(id);
                 }
-                "storage-map-aufraeumliste.csv"
+                Text::new("storage-map-cleanup-list.csv", "storage-map-aufraeumliste.csv")
             }
             "dups" => {
                 let groups = app.dup.groups.lock().unwrap();
@@ -1135,7 +1166,7 @@ fn export(app: &App, m: &HashMap<String, String>) -> Result<(String, String), (u
                         }
                     }
                 }
-                "storage-map-duplikate.csv"
+                Text::new("storage-map-duplicates.csv", "storage-map-duplikate.csv")
             }
             _ => {
                 let mut q = file_query(m);
@@ -1144,10 +1175,10 @@ fn export(app: &App, m: &HashMap<String, String>) -> Result<(String, String), (u
                 for id in ids.iter().take(1_000_000) {
                     push(*id);
                 }
-                "storage-map-dateien.csv"
+                Text::new("storage-map-files.csv", "storage-map-dateien.csv")
             }
         };
-        Ok((out, name.to_string()))
+        Ok((out, name.get(lang).to_string()))
     })
 }
 
@@ -1183,7 +1214,7 @@ fn mcp_set_config(body: &Value) -> Res {
     let (mut cfg, _) = config::load();
     let old = cfg.mcp.clone();
     if let Some(l) = body.get("level") {
-        cfg.mcp.level = serde_json::from_value(l.clone()).map_err(|_| (400, "Unbekannte Stufe.".to_string()))?;
+        cfg.mcp.level = serde_json::from_value(l.clone()).map_err(|_| (400, Text::new("Unknown level.", "Unbekannte Stufe.")))?;
     }
     if let Some(v) = body["allowScan"].as_bool() {
         cfg.mcp.allow_scan = v;
@@ -1201,26 +1232,33 @@ fn mcp_set_config(body: &Value) -> Res {
     let raises_delete = cfg.mcp.level >= Level::Delete && old.level < Level::Delete;
     let raises_permanent = cfg.mcp.allow_permanent_delete && !old.allow_permanent_delete;
     let confirm = body["confirm"].as_str().unwrap_or("");
-    if (raises_delete || raises_permanent) && confirm != "LÖSCHEN" {
-        return err(400, "Löschrechte müssen mit dem Wort LÖSCHEN bestätigt werden.");
+    if (raises_delete || raises_permanent) && !CONFIRM_DELETE.contains(&confirm) {
+        return err(
+            400,
+            Text::new("Delete rights must be confirmed with the word DELETE.", "Löschrechte müssen mit dem Wort LÖSCHEN bestätigt werden."),
+        );
     }
-    if raises_write && !raises_delete && confirm != "SCHREIBEN" {
-        return err(400, "Schreibrechte müssen mit dem Wort SCHREIBEN bestätigt werden.");
+    if raises_write && !raises_delete && !CONFIRM_WRITE.contains(&confirm) {
+        return err(
+            400,
+            Text::new("Write rights must be confirmed with the word WRITE.", "Schreibrechte müssen mit dem Wort SCHREIBEN bestätigt werden."),
+        );
     }
-    config::save(&cfg).map_err(|e| (500, format!("Einstellungen nicht gespeichert: {e}")))?;
+    config::save(&cfg).map_err(|e| (500, tr!("Settings not saved: {e}", "Einstellungen nicht gespeichert: {e}")))?;
     Ok(json!({"ok": true, "config": cfg.mcp}))
 }
 
 pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, String>, body: &Value) -> Res {
     let get = *method == Method::Get;
+    let lang = Lang::of_query(m);
     match path {
-        "/api/status" => Ok(status(app)),
+        "/api/status" => Ok(status(app, lang)),
         "/api/session/new" if !get => Ok(json!({"code": app.new_session_code(), "mode": app.mode.name()})),
         "/api/mcp" => Ok(mcp_info(app)),
         "/api/mcp/config" if !get => mcp_set_config(body),
-        "/api/mcp/audit" => Ok(mcp::audit_tail(num(m, "limit", 200usize).min(2000))),
-        "/api/drives" => Ok(drives_json(app)),
-        "/api/browse" => browse(app, m.get("path").map(|s| s.as_str()).unwrap_or("")),
+        "/api/mcp/audit" => Ok(mcp::audit_tail(num(m, "limit", 200usize).min(2000), lang)),
+        "/api/drives" => Ok(drives_json(app, lang)),
+        "/api/browse" => browse(app, m.get("path").map(|s| s.as_str()).unwrap_or(""), lang),
         "/api/scan" if !get => start_scan(app, body["path"].as_str().unwrap_or("")),
         "/api/scan/cancel" if !get => {
             if let Some(p) = app.scan.lock().unwrap().as_ref() {
@@ -1230,13 +1268,13 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         }
         "/api/open-cached" if !get => {
             if app.is_busy() {
-                return err(409, "Es läuft noch ein anderer Vorgang.");
+                return err(409, BUSY);
             }
             let root = paths::normalize(body["path"].as_str().unwrap_or("")).map_err(|e| (400, e))?;
             if !app.mode.allows(&root) {
                 return err(403, REFUSED);
             }
-            let ix = history::load_latest(&root).map_err(|e| (404, format!("Kein gespeicherter Scan: {e}")))?;
+            let ix = history::load_latest(&root).map_err(|e| (404, tr!("No saved scan: {e}", "Kein gespeicherter Scan: {e}")))?;
             app.install_index(ix);
             // Live-Wert nach dem Laden aktualisieren: Der Scan kann alt sein.
             if app.mode.is_normal() {
@@ -1249,7 +1287,7 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         }
         "/api/close" if !get => {
             if app.is_busy() {
-                return err(409, "Es läuft noch ein anderer Vorgang.");
+                return err(409, BUSY);
             }
             *app.index.write().unwrap() = None;
             app.cart.lock().unwrap().ids.clear();
@@ -1260,20 +1298,20 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         "/api/summary" => with_index(app, |ix| {
             let gen = app.gen.load(Relaxed);
             let mut slot = app.summary.lock().unwrap();
-            if let Some((g, v)) = slot.as_ref() {
-                if *g == gen {
+            if let Some((g, l, v)) = slot.as_ref() {
+                if *g == gen && *l == lang {
                     return Ok((**v).clone());
                 }
             }
             let rep = app.junk_report(ix);
             let (w, verified) = app.dup_totals(ix);
-            let v = analysis::summary(ix, &rep, w, verified);
-            *slot = Some((gen, Arc::new(v.clone())));
+            let v = analysis::summary(ix, &rep, w, verified, lang);
+            *slot = Some((gen, lang, Arc::new(v.clone())));
             Ok(v)
         }),
         "/api/node" => with_index(app, |ix| {
             let id = check_id(ix, num(m, "id", 0u32))?;
-            Ok(analysis::node_detail(ix, id))
+            Ok(analysis::node_detail(ix, id, lang))
         }),
         "/api/children" => with_index(app, |ix| {
             let id = check_id(ix, num(m, "id", 0u32))?;
@@ -1293,17 +1331,17 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         "/api/files" => with_index(app, |ix| {
             let q = file_query(m);
             check_id(ix, q.under)?;
-            Ok(analysis::files_json(ix, &q))
+            Ok(analysis::files_json(ix, &q, lang))
         }),
         "/api/types" => with_index(app, |ix| Ok(analysis::types(ix))),
         "/api/stale" => with_index(app, |ix| {
             let cutoff = num(m, "cutoff", 0u32);
-            Ok(analysis::stale_dirs(ix, cutoff, num(m, "min", 1u64 << 20), num(m, "limit", 100usize).min(1000)))
+            Ok(analysis::stale_dirs(ix, cutoff, num(m, "min", 1u64 << 20), num(m, "limit", 100usize).min(1000), lang))
         }),
         "/api/denied" => {
             with_index(app, |ix| Ok(json!({"total": ix.meta.denied.len(), "rows": ix.meta.denied.iter().take(1000).collect::<Vec<_>>()})))
         }
-        "/api/junk" => junk_json(app),
+        "/api/junk" => junk_json(app, lang),
         "/api/junk/items" => junk_items(app, m),
         "/api/dups/start" if !get => start_dups(app, body),
         "/api/dups/cancel" if !get => {
@@ -1314,13 +1352,14 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         "/api/dupfolders" => dup_folders_json(app, m),
         "/api/history" => with_index(app, |ix| {
             let e = history::read_entries(&ix.meta.root);
-            Ok(json!({"entries": e, "catNames": crate::category::NAMES}))
+            Ok(json!({"entries": e, "catNames": category::names(lang)}))
         }),
-        "/api/diff" => {
-            with_index(app, |ix| history::diff(ix, num(m, "ts", 0u64)).ok_or((404, "Für diesen Scan gibt es keine Vergleichsdaten.".to_string())))
-        }
+        "/api/diff" => with_index(app, |ix| {
+            history::diff(ix, num(m, "ts", 0u64))
+                .ok_or((404, Text::new("There is no comparison data for this scan.", "Für diesen Scan gibt es keine Vergleichsdaten.")))
+        }),
         "/api/cart" => cart_json(app, m),
-        "/api/cart/add" if !get => cart_add(app, body),
+        "/api/cart/add" if !get => cart_add(app, body, lang),
         "/api/cart/remove" if !get => with_index(app, |ix| {
             let count = {
                 let mut c = app.cart.lock().unwrap();
@@ -1349,11 +1388,11 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         "/api/reveal" if !get && !app.mode.is_normal() => Ok(json!({"ok": true, "simulated": true})),
         "/api/open" if !get && !app.mode.is_normal() => Ok(json!({"ok": true, "simulated": true})),
         "/api/tool/cleanmgr" if !get && !app.mode.is_normal() => Ok(json!({"ok": true, "simulated": true})),
-        "/api/elevate" if !get && !app.mode.is_normal() => err(400, "Im Test-Betrieb nicht verfügbar."),
+        "/api/elevate" if !get && !app.mode.is_normal() => err(400, Text::new("Not available in a test mode.", "Im Test-Betrieb nicht verfügbar.")),
         "/api/recycle/empty" if !get && matches!(app.mode, RunMode::Sandbox(_)) => Ok(json!({"ok": true, "simulated": true})),
         "/api/recycle/empty" if !get && matches!(app.mode, RunMode::Demo { .. }) => {
             let mut g = app.index.write().unwrap();
-            let Some(ix) = g.as_mut() else { return err(404, "Noch kein Scan geladen.") };
+            let Some(ix) = g.as_mut() else { return err(404, NO_SCAN) };
             if let Some(b) = demo::trash_node(ix) {
                 app.live_free.fetch_add(ix.nodes[b as usize].alloc, Relaxed);
                 ix.mark_deleted(b);
@@ -1365,7 +1404,7 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         "/api/health" if !app.mode.is_normal() => Ok(json!({"unavailable": true})),
         "/api/reveal" if !get => with_index(app, |ix| {
             let id = check_id(ix, body["id"].as_u64().unwrap_or(0) as u32)?;
-            platform::reveal(&ix.path(id)).map_err(|e| (500, e.to_string()))?;
+            platform::reveal(&ix.path(id)).map_err(|e| (500, Text::same(e.to_string())))?;
             Ok(json!({"ok": true}))
         }),
         "/api/open" if !get => with_index(app, |ix| {
@@ -1377,16 +1416,22 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
                 "appimage", "desktop", "deb", "rpm", "py", "pl", "rb",
             ];
             if !n.is_dir() && RUNNABLE.contains(&ext) {
-                return err(400, "Programme werden hier aus Sicherheitsgründen nicht gestartet. Bitte im Dateimanager öffnen.");
+                return err(
+                    400,
+                    Text::new(
+                        "For safety, programs are not started from here. Please open it in the file manager.",
+                        "Programme werden hier aus Sicherheitsgründen nicht gestartet. Bitte im Dateimanager öffnen.",
+                    ),
+                );
             }
             if !platform::shell_open(&ix.path(id)) {
-                return err(500, "Konnte nicht geöffnet werden.");
+                return err(500, Text::new("Could not be opened.", "Konnte nicht geöffnet werden."));
             }
             Ok(json!({"ok": true}))
         }),
         "/api/recycle/empty" if !get => {
             let root = with_index(app, |ix| Ok(platform::volume_root(&ix.meta.root)))?;
-            let Some(r) = root else { return err(400, "Kein Laufwerk.") };
+            let Some(r) = root else { return err(400, Text::new("Not a drive.", "Kein Laufwerk.")) };
             let hr = platform::empty_recycle_bin(&r);
             app.live_free.store(platform::volume_info(&r).free, Relaxed);
             Ok(json!({"ok": hr == 0, "code": hr}))
@@ -1424,17 +1469,17 @@ pub fn route(app: &Arc<App>, method: &Method, path: &str, m: &HashMap<String, St
         })),
         "/api/elevate" if !get => {
             if app.is_busy() {
-                return err(409, "Es läuft noch ein anderer Vorgang.");
+                return err(409, BUSY);
             }
             if platform::restart_elevated(&restart_args()) {
                 shut_down(app);
                 Ok(json!({"ok": true}))
             } else {
-                err(400, "Adminrechte wurden nicht erteilt.")
+                err(400, Text::new("Administrator rights were not granted.", "Adminrechte wurden nicht erteilt."))
             }
         }
         "/api/quit" if !get => Ok(json!({"ok": true, "closesWindow": shut_down(app)})),
-        _ => err(404, "Unbekannt"),
+        _ => err(404, Text::new("Unknown", "Unbekannt")),
     }
 }
 
@@ -1456,6 +1501,8 @@ fn handle(app: &Arc<App>, mut rq: Request) {
     let url = rq.url().to_string();
     let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
     let method = rq.method().clone();
+    let qm = query_map(query);
+    let lang = Lang::of_query(&qm);
 
     // Schutz gegen DNS-Rebinding: Nur Anfragen an die eigene Adresse beantworten.
     let host_ok = rq.headers().iter().any(|h| {
@@ -1481,7 +1528,8 @@ fn handle(app: &Arc<App>, mut rq: Request) {
         if app.redeem_session_code(&code) {
             respond_json(rq, 200, &json!({"token": app.token}));
         } else {
-            respond_json(rq, 401, &json!({"error": "Der Code ist abgelaufen. Bitte Storage Map neu starten."}));
+            let m = Text::new("The code has expired. Please restart Storage Map.", "Der Code ist abgelaufen. Bitte Storage Map neu starten.");
+            respond_json(rq, 401, &json!({"error": m.get(lang)}));
         }
         return;
     }
@@ -1489,11 +1537,11 @@ fn handle(app: &Arc<App>, mut rq: Request) {
     if path.starts_with("/api/") {
         // Das Token kommt als eigener Header. Fremde Webseiten koennen so einen Header
         // nur nach CORS-Freigabe senden, und die gibt es hier nicht.
-        let qm = query_map(query);
         let token_ok = rq.headers().iter().any(|h| h.field.equiv("X-SM-Token") && h.value.as_str() == app.token)
             || (path == "/api/export" && qm.get("t").map(|t| *t == app.token).unwrap_or(false));
         if !token_ok {
-            respond_json(rq, 401, &json!({"error": "Nicht angemeldet. Bitte Storage Map neu starten."}));
+            let m = Text::new("Not signed in. Please restart Storage Map.", "Nicht angemeldet. Bitte Storage Map neu starten.");
+            respond_json(rq, 401, &json!({"error": m.get(lang)}));
             return;
         }
         if path == "/api/export" {
@@ -1504,7 +1552,7 @@ fn handle(app: &Arc<App>, mut rq: Request) {
                         .with_header(header("Content-Disposition", &format!("attachment; filename=\"{name}\"")));
                     let _ = rq.respond(r);
                 }
-                Err((c, e)) => respond_json(rq, c, &json!({"error": e})),
+                Err((c, e)) => respond_json(rq, c, &json!({"error": e.get(lang)})),
             }
             return;
         }
@@ -1518,8 +1566,12 @@ fn handle(app: &Arc<App>, mut rq: Request) {
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| route(app, &method, path, &qm, &body)));
         match res {
             Ok(Ok(v)) => respond_json(rq, 200, &v),
-            Ok(Err((c, e))) => respond_json(rq, c, &json!({"error": e})),
-            Err(_) => respond_json(rq, 500, &json!({"error": "Interner Fehler. Bitte erneut versuchen."})),
+            Ok(Err((c, e))) => respond_json(rq, c, &json!({"error": e.get(lang)})),
+            Err(_) => respond_json(
+                rq,
+                500,
+                &json!({"error": Text::new("Internal error. Please try again.", "Interner Fehler. Bitte erneut versuchen.").get(lang)}),
+            ),
         }
         return;
     }
@@ -1547,7 +1599,7 @@ fn handle(app: &Arc<App>, mut rq: Request) {
             let _ = rq.respond(r);
         }
         None => {
-            let _ = rq.respond(Response::from_string("Nicht gefunden").with_status_code(404));
+            let _ = rq.respond(Response::from_string("Not found").with_status_code(404));
         }
     }
 }
@@ -1627,6 +1679,16 @@ mod tests {
         assert_eq!(csv_escape("=cmd()"), "\"'=cmd()\"");
         assert_eq!(csv_escape("a\"b"), "\"a\"\"b\"");
         assert_eq!(csv_escape(r"C:\x"), "\"C:\\x\"");
+    }
+
+    #[test]
+    fn confirmation_words_work_in_both_languages() {
+        for w in ["DELETE", "LÖSCHEN"] {
+            assert!(CONFIRM_DELETE.contains(&w));
+        }
+        for w in ["WRITE", "SCHREIBEN"] {
+            assert!(CONFIRM_WRITE.contains(&w));
+        }
     }
 
     #[test]

@@ -1,37 +1,74 @@
 //! Schutzregeln: Was darf Storage Map niemals anfassen, und wo wird gewarnt?
 //! Das Backend prueft das bei jedem Loeschen erneut, die Oberflaeche zeigt es nur an.
 
+use crate::i18n::{Lang, Text};
 use crate::paths;
-use serde::Serialize;
+use serde_json::{json, Value};
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "level", content = "reason", rename_all = "lowercase")]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Guard {
     Ok,
-    Warn(String),
-    Block(String),
+    Warn(Text),
+    Block(Text),
 }
 
-const ROOT_BLOCK: &[(&str, &str)] = &[
-    ("system volume information", "Systemwiederherstellung: Wird von Windows verwaltet."),
-    ("$recycle.bin", "Papierkorb: Bitte über \"Papierkorb leeren\" aufräumen."),
-    ("recovery", "Windows-Wiederherstellung."),
-    ("boot", "Startdateien von Windows."),
-    ("efi", "Startdateien von Windows."),
-    ("config.msi", "Wird vom Windows Installer verwaltet."),
-    ("pagefile.sys", "Auslagerungsdatei: Wird in den Windows-Einstellungen verwaltet."),
-    ("hiberfil.sys", "Ruhezustand: Mit \"powercfg /h off\" abschaltbar."),
-    ("swapfile.sys", "Auslagerungsdatei: Wird von Windows verwaltet."),
-    ("bootmgr", "Startdatei von Windows."),
-    ("bootnxt", "Startdatei von Windows."),
-    ("dumpstack.log", "Wird von Windows verwaltet."),
-    ("dumpstack.log.tmp", "Wird von Windows verwaltet."),
-    ("windows.old", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
-    ("$windows.~bt", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
-    ("$windows.~ws", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
-    ("$getcurrent", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
-    ("$sysreset", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
-    ("$winreagent", "Bitte mit der Windows-Datenträgerbereinigung entfernen."),
+impl Guard {
+    /// Die Form, in der die Schnittstelle den Schutz meldet: `level` und, wenn es einen gibt, `reason`.
+    pub fn json(&self, lang: Lang) -> Value {
+        match self {
+            Guard::Ok => json!({"level": "ok"}),
+            Guard::Warn(t) => json!({"level": "warn", "reason": t.get(lang)}),
+            Guard::Block(t) => json!({"level": "block", "reason": t.get(lang)}),
+        }
+    }
+}
+
+const BIN: Text = Text::new("Recycle bin: please clean it up with \"Empty recycle bin\".", "Papierkorb: Bitte über \"Papierkorb leeren\" aufräumen.");
+const WIN_BOOT: Text = Text::new("Windows boot files.", "Startdateien von Windows.");
+const WIN_BOOT_FILE: Text = Text::new("Windows boot file.", "Startdatei von Windows.");
+const WIN_MANAGED: Text = Text::new("Managed by Windows.", "Wird von Windows verwaltet.");
+const WIN_CLEANUP: Text = Text::new("Please remove this with Windows Disk Cleanup.", "Bitte mit der Windows-Datenträgerbereinigung entfernen.");
+const USER_FOLDERS: Text = Text::new("Windows user folder.", "Benutzerordner von Windows.");
+const PROFILE_FOLDER: Text = Text::new(
+    "Standard folder of your profile. Individual contents can be deleted.",
+    "Standardordner deines Profils. Einzelne Inhalte können gelöscht werden.",
+);
+const PROFILE_APP_DATA: Text = Text::new(
+    "Program data of your profile. Individual contents can be deleted.",
+    "Programmdaten deines Profils. Einzelne Inhalte können gelöscht werden.",
+);
+const APP_DATA_WARN: Text =
+    Text::new("Program data: settings or saved games may be lost.", "Programmdaten: Einstellungen oder Spielstände können verloren gehen.");
+const WHOLE_DRIVE: Text = Text::new("The whole drive cannot be deleted.", "Das ganze Laufwerk kann nicht gelöscht werden.");
+const OS_PART: Text = Text::new(
+    "Part of the operating system. Deleting it could damage the system.",
+    "Teil des Betriebssystems. Löschen könnte das System beschädigen.",
+);
+const MOUNT_POINTS: Text = Text::new(
+    "Drives are mounted here. Individual contents can be deleted.",
+    "Hier werden Laufwerke eingehängt. Einzelne Inhalte können gelöscht werden.",
+);
+
+const ROOT_BLOCK: &[(&str, Text)] = &[
+    ("system volume information", Text::new("System restore: managed by Windows.", "Systemwiederherstellung: Wird von Windows verwaltet.")),
+    ("$recycle.bin", BIN),
+    ("recovery", Text::new("Windows recovery.", "Windows-Wiederherstellung.")),
+    ("boot", WIN_BOOT),
+    ("efi", WIN_BOOT),
+    ("config.msi", Text::new("Managed by Windows Installer.", "Wird vom Windows Installer verwaltet.")),
+    ("pagefile.sys", Text::new("Page file: managed in the Windows settings.", "Auslagerungsdatei: Wird in den Windows-Einstellungen verwaltet.")),
+    ("hiberfil.sys", Text::new("Hibernation: can be turned off with \"powercfg /h off\".", "Ruhezustand: Mit \"powercfg /h off\" abschaltbar.")),
+    ("swapfile.sys", Text::new("Page file: managed by Windows.", "Auslagerungsdatei: Wird von Windows verwaltet.")),
+    ("bootmgr", WIN_BOOT_FILE),
+    ("bootnxt", WIN_BOOT_FILE),
+    ("dumpstack.log", WIN_MANAGED),
+    ("dumpstack.log.tmp", WIN_MANAGED),
+    ("windows.old", WIN_CLEANUP),
+    ("$windows.~bt", WIN_CLEANUP),
+    ("$windows.~ws", WIN_CLEANUP),
+    ("$getcurrent", WIN_CLEANUP),
+    ("$sysreset", WIN_CLEANUP),
+    ("$winreagent", WIN_CLEANUP),
 ];
 
 /// Unterordner von Windows, deren Inhalt gefahrlos weg darf (der Ordner selbst bleibt).
@@ -117,51 +154,49 @@ const UNIX_PROFILE_FOLDERS: &[&str] = &[
 ];
 
 fn check_profile(rel: &[&str]) -> Guard {
-    let block = |m: &str| Guard::Block(m.to_string());
     if rel.is_empty() {
-        return block("Ganzes Benutzerprofil. Wird vom System benötigt.");
+        return Guard::Block(Text::new("The whole user profile. The system needs it.", "Ganzes Benutzerprofil. Wird vom System benötigt."));
     }
     let first = rel[0].to_lowercase();
     if matches!(first.as_str(), ".ssh" | ".gnupg" | ".pki") {
-        return block("Schlüssel und Zugangsdaten.");
+        return Guard::Block(Text::new("Keys and credentials.", "Schlüssel und Zugangsdaten."));
     }
     if rel.len() == 1 && UNIX_PROFILE_FOLDERS.contains(&first.as_str()) {
-        return block("Standardordner deines Profils. Einzelne Inhalte können gelöscht werden.");
+        return Guard::Block(PROFILE_FOLDER);
     }
     if first == ".local" {
         if rel.len() >= 3 && rel[1] == "share" && rel[2].eq_ignore_ascii_case("trash") {
-            return block("Papierkorb: Bitte über \"Papierkorb leeren\" aufräumen.");
+            return Guard::Block(BIN);
         }
         if rel.len() == 2 {
-            return block("Programmdaten deines Profils. Einzelne Inhalte können gelöscht werden.");
+            return Guard::Block(PROFILE_APP_DATA);
         }
-        return Guard::Warn("Programmdaten: Einstellungen oder Spielstände können verloren gehen.".into());
+        return Guard::Warn(APP_DATA_WARN);
     }
     if first == ".config" {
-        return Guard::Warn("Einstellungen von Programmen. Sie gehen dabei verloren.".into());
+        return Guard::Warn(Text::new("Program settings. They will be lost.", "Einstellungen von Programmen. Sie gehen dabei verloren."));
     }
     Guard::Ok
 }
 
 /// Schutzregeln fuer Linux. Gross- und Kleinschreibung zaehlen hier.
 pub fn check_unix(path: &str, home: &str) -> Guard {
-    let block = |m: &str| Guard::Block(m.to_string());
     let p = path.trim_end_matches('/');
     if p.is_empty() {
-        return block("Das ganze Dateisystem kann nicht gelöscht werden.");
+        return Guard::Block(Text::new("The whole file system cannot be deleted.", "Das ganze Dateisystem kann nicht gelöscht werden."));
     }
     let parts: Vec<&str> = p.split('/').skip(1).collect();
     let first = parts[0];
     let name = parts[parts.len() - 1];
 
     if parts.contains(&"lost+found") {
-        return block("Wird vom Dateisystem verwaltet.");
+        return Guard::Block(Text::new("Managed by the file system.", "Wird vom Dateisystem verwaltet."));
     }
     if name == ".Trash" || name.starts_with(".Trash-") || parts.iter().any(|c| *c == ".Trash" || c.starts_with(".Trash-")) {
-        return block("Papierkorb: Bitte über \"Papierkorb leeren\" aufräumen.");
+        return Guard::Block(BIN);
     }
     if parts.len() == 1 && matches!(first, "swapfile" | "swap.img" | "swap") {
-        return block("Auslagerungsdatei: Wird vom System verwaltet.");
+        return Guard::Block(Text::new("Swap file: managed by the system.", "Auslagerungsdatei: Wird vom System verwaltet."));
     }
     // Profil zuerst: Es kann auch ausserhalb von /home liegen, etwa unter /var/home.
     let home = home.trim_end_matches('/');
@@ -170,16 +205,17 @@ pub fn check_unix(path: &str, home: &str) -> Guard {
         return check_profile(&rel);
     }
     match first {
-        "usr" if parts.len() >= 4 && parts[1] == "local" => {
-            Guard::Warn("Von Hand installierte Software. Andere Programme können davon abhängen.".into())
-        }
-        f if UNIX_SYSTEM.contains(&f) => block("Teil des Betriebssystems. Löschen könnte das System beschädigen."),
+        "usr" if parts.len() >= 4 && parts[1] == "local" => Guard::Warn(Text::new(
+            "Software installed by hand. Other programs may depend on it.",
+            "Von Hand installierte Software. Andere Programme können davon abhängen.",
+        )),
+        f if UNIX_SYSTEM.contains(&f) => Guard::Block(OS_PART),
         "run" => {
             // Wechseldatentraeger haengen unter /run/media/<nutzer>/<laufwerk>.
             if parts.len() >= 5 && parts[1] == "media" {
                 Guard::Ok
             } else {
-                block("Teil des Betriebssystems. Löschen könnte das System beschädigen.")
+                Guard::Block(OS_PART)
             }
         }
         "var" => {
@@ -188,50 +224,61 @@ pub fn check_unix(path: &str, home: &str) -> Guard {
                 return Guard::Ok;
             }
             if parts.len() >= 3 && parts[1] == "log" {
-                return Guard::Warn("Protokolle des Systems. Laufende Dienste schreiben evtl. noch hinein.".into());
+                return Guard::Warn(Text::new(
+                    "System logs. Running services may still write to them.",
+                    "Protokolle des Systems. Laufende Dienste schreiben evtl. noch hinein.",
+                ));
             }
-            block("Wird vom System und von Diensten benötigt.")
+            Guard::Block(Text::new("Needed by the system and by services.", "Wird vom System und von Diensten benötigt."))
         }
-        "tmp" if parts.len() == 1 => block("Ordner des Systems. Einzelne Inhalte können gelöscht werden."),
+        "tmp" if parts.len() == 1 => Guard::Block(Text::new(
+            "System folder. Individual contents can be deleted.",
+            "Ordner des Systems. Einzelne Inhalte können gelöscht werden.",
+        )),
         "opt" | "srv" => {
             if parts.len() == 1 {
-                block("Ordner des Systems. Bitte einzelne Programme deinstallieren.")
+                Guard::Block(Text::new(
+                    "System folder. Please uninstall individual programs.",
+                    "Ordner des Systems. Bitte einzelne Programme deinstallieren.",
+                ))
             } else {
-                Guard::Warn("Installierte Software. Besser über die Paketverwaltung entfernen.".into())
+                Guard::Warn(Text::new(
+                    "Installed software. Better removed with the package manager.",
+                    "Installierte Software. Besser über die Paketverwaltung entfernen.",
+                ))
             }
         }
         "root" => check_profile(&parts[1..]),
         "home" => {
             if parts.len() == 1 {
-                block("Ordner aller Benutzerprofile.")
+                Guard::Block(Text::new("Folder of all user profiles.", "Ordner aller Benutzerprofile."))
             } else {
                 check_profile(&parts[2..])
             }
         }
-        "mnt" if parts.len() <= 2 => block("Hier werden Laufwerke eingehängt. Einzelne Inhalte können gelöscht werden."),
-        "media" if parts.len() <= 3 => block("Hier werden Laufwerke eingehängt. Einzelne Inhalte können gelöscht werden."),
+        "mnt" if parts.len() <= 2 => Guard::Block(MOUNT_POINTS),
+        "media" if parts.len() <= 3 => Guard::Block(MOUNT_POINTS),
         _ => Guard::Ok,
     }
 }
 
 pub fn check_windows(path: &str, sysroot: &str, sysdrive: &str) -> Guard {
     let p = path.trim_end_matches('\\').to_lowercase();
-    let block = |m: &str| Guard::Block(m.to_string());
 
     // Laufwerkswurzel oder UNC-Freigabe selbst
     let (drive, rest) = match p.split_once('\\') {
         Some((d, r)) if !d.is_empty() => (d, r),
-        None => return block("Das ganze Laufwerk kann nicht gelöscht werden."),
+        None => return Guard::Block(WHOLE_DRIVE),
         _ => return Guard::Ok, // UNC-Pfad: keine Windows-Systemordner
     };
     if rest.is_empty() {
-        return block("Das ganze Laufwerk kann nicht gelöscht werden.");
+        return Guard::Block(WHOLE_DRIVE);
     }
     let parts: Vec<&str> = rest.split('\\').collect();
     let first = parts[0];
 
     if let Some((_, why)) = ROOT_BLOCK.iter().find(|(n, _)| *n == first) {
-        return block(why);
+        return Guard::Block(why.clone());
     }
 
     // Windows-Ordner
@@ -245,40 +292,52 @@ pub fn check_windows(path: &str, sysroot: &str, sysdrive: &str) -> Guard {
                 return Guard::Ok;
             }
         }
-        return block("Teil von Windows. Löschen könnte das System beschädigen.");
+        return Guard::Block(Text::new(
+            "Part of Windows. Deleting it could damage the system.",
+            "Teil von Windows. Löschen könnte das System beschädigen.",
+        ));
     }
 
     let on_system = drive == sysdrive;
     if first == "program files" || first == "program files (x86)" {
         if parts.len() == 1 {
-            return block("Programmordner: Bitte einzelne Programme deinstallieren.");
+            return Guard::Block(Text::new(
+                "Programs folder: please uninstall individual programs.",
+                "Programmordner: Bitte einzelne Programme deinstallieren.",
+            ));
         }
-        return Guard::Warn("Installierte Software. Besser über \"Apps & Features\" deinstallieren.".into());
+        return Guard::Warn(Text::new(
+            "Installed software. Better uninstalled via \"Apps & features\".",
+            "Installierte Software. Besser über \"Apps & Features\" deinstallieren.",
+        ));
     }
     if on_system && first == "programdata" {
         if parts.len() == 1 || parts[1] == "microsoft" {
-            return block("Wird von Windows und Programmen benötigt.");
+            return Guard::Block(Text::new("Needed by Windows and programs.", "Wird von Windows und Programmen benötigt."));
         }
-        return Guard::Warn("Programmdaten. Manche Programme funktionieren danach nicht mehr.".into());
+        return Guard::Warn(Text::new(
+            "Program data. Some programs may stop working.",
+            "Programmdaten. Manche Programme funktionieren danach nicht mehr.",
+        ));
     }
     if first == "users" && (on_system || parts.len() > 1) {
         if parts.len() == 1 {
-            return block("Benutzerordner von Windows.");
+            return Guard::Block(USER_FOLDERS);
         }
         if matches!(parts[1], "default" | "default user" | "all users" | "public") && parts.len() == 2 {
-            return block("Benutzerordner von Windows.");
+            return Guard::Block(USER_FOLDERS);
         }
         if parts.len() == 2 {
-            return block("Ganzes Benutzerprofil. Wird von Windows benötigt.");
+            return Guard::Block(Text::new("The whole user profile. Windows needs it.", "Ganzes Benutzerprofil. Wird von Windows benötigt."));
         }
         if parts.len() == 3 && PROFILE_FOLDERS.contains(&parts[2]) {
-            return block("Standardordner deines Profils. Einzelne Inhalte können gelöscht werden.");
+            return Guard::Block(PROFILE_FOLDER);
         }
         if parts.get(2) == Some(&"appdata") {
             if parts.len() == 4 {
-                return block("Programmdaten deines Profils. Einzelne Inhalte können gelöscht werden.");
+                return Guard::Block(PROFILE_APP_DATA);
             }
-            return Guard::Warn("Programmdaten: Einstellungen oder Spielstände können verloren gehen.".into());
+            return Guard::Warn(APP_DATA_WARN);
         }
     }
     Guard::Ok
@@ -445,5 +504,15 @@ mod tests {
     fn path_style_selects_the_rules() {
         assert!(matches!(check("/usr/lib/x"), Guard::Block(_)));
         assert!(matches!(check(r"C:\pagefile.sys"), Guard::Block(_)));
+    }
+
+    #[test]
+    fn reasons_exist_in_both_languages() {
+        let g = c(r"C:\Windows\System32\x.dll");
+        assert_eq!(g.json(Lang::En)["level"], "block");
+        assert!(g.json(Lang::En)["reason"].as_str().unwrap().starts_with("Part of Windows"));
+        assert!(g.json(Lang::De)["reason"].as_str().unwrap().starts_with("Teil von Windows"));
+        assert_eq!(Guard::Ok.json(Lang::De), json!({"level": "ok"}));
+        assert_eq!(c(r"C:\Program Files\Foo").json(Lang::En)["level"], "warn");
     }
 }

@@ -350,6 +350,9 @@ fn scan_reports_exactly_what_is_there() {
     let cats = sum["cats"].as_array().unwrap();
     let video = cats.iter().find(|c| c["name"] == "Videos").unwrap();
     assert_eq!(video["files"], 3);
+    assert!(cats.iter().any(|c| c["name"] == "Images"), "{cats:?}");
+    let cats_de = get(&s, "/api/summary?lang=de")["cats"].clone();
+    assert!(cats_de.as_array().unwrap().iter().any(|c| c["name"] == "Bilder"), "{cats_de}");
     assert!(video["alloc"].as_u64().unwrap() >= 36 * MB);
 
     assert_eq!(find(&s, "Übung größe.txt")["size"], 12 * 1024, "Umlaute");
@@ -475,9 +478,15 @@ fn cleanup_removes_only_what_it_should() {
     let xl = find(&s, "wichtig.xlsx");
     std::fs::write(rel(&fx, r"Daten\wichtig.xlsx"), b"inzwischen anders").unwrap();
     post(&s, "/api/cart/add", json!({"ids": [xl["id"]]}));
-    let last = cleanup(&s, json!({"mode": "permanent", "confirm": "LÖSCHEN"}));
+    post(&s, "/api/cleanup/start", json!({"mode": "permanent", "confirm": "DELETE"}));
+    let st = wait(&s, "Aufräumen", |st| st["cleanup"]["running"] == false && !st["cleanup"]["last"].is_null());
+    let last = &st["cleanup"]["last"];
     assert_eq!(last["ok"], 0, "{last}");
-    assert!(last["failures"][0]["reason"].as_str().unwrap().contains("geändert"), "{last}");
+    assert!(last["failures"][0]["reason"].as_str().unwrap().contains("changed"), "{last}");
+    // Dasselbe Ergebnis, abgeholt in der anderen Sprache.
+    let de = get(&s, "/api/status?lang=de");
+    assert!(de["cleanup"]["last"]["failures"][0]["reason"].as_str().unwrap().contains("geändert"), "{de}");
+    post(&s, "/api/cleanup/ack", json!({}));
     assert!(rel(&fx, r"Daten\wichtig.xlsx").exists());
     post(&s, "/api/cart/clear", json!({}));
 
@@ -552,6 +561,78 @@ fn csv_export_works_and_needs_token() {
     assert!(body.starts_with('\u{feff}'), "BOM für Excel");
     assert_eq!(body.lines().count(), 4, "{body}");
     assert!(body.contains("urlaub-2019.mp4"));
+
+    // Englisch mit Komma, Deutsch mit Semikolon.
+    assert!(body.contains("Path,Type,Used (bytes)"), "{body}");
+    assert!(body.contains(",File,"), "{body}");
+    let (c, de) = raw(s.port, "GET", "/api/export?what=files&t=t&q=*.mp4&lang=de", "", None, None);
+    assert_eq!(c, 200);
+    assert!(de.contains("Pfad;Typ;Belegt (Bytes)"), "{de}");
+    assert!(de.contains(";Datei;"), "{de}");
+}
+
+fn error_of(s: &Srv, path: &str) -> String {
+    let (c, b) = raw(s.port, "GET", path, "", Some("t"), None);
+    assert_ne!(c, 200, "{path}: {b}");
+    serde_json::from_str::<Value>(&b).unwrap()["error"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn the_interface_can_ask_for_either_language() {
+    let base = workspace("lang");
+    let data = base.join("data");
+    let s = start(&["--demo", "--data-dir", data.to_str().unwrap()]);
+    let (first, system_file) = if cfg!(windows) { (r"C:\", "sys00001.dll") } else { ("/", "sys00001.so") };
+
+    // Das Woerterbuch der Oberflaeche wird mit ausgeliefert.
+    let (c, script) = raw(s.port, "GET", "/js/i18n.js", "", None, None);
+    assert_eq!(c, 200);
+    assert!(script.contains("'nav.overview'"));
+
+    // Ohne Angabe Englisch, unbekannte Sprachen ebenso.
+    let msg = "No scan is loaded yet.";
+    assert_eq!(error_of(&s, "/api/summary"), msg);
+    assert_eq!(error_of(&s, "/api/summary?lang=en"), msg);
+    assert_eq!(error_of(&s, "/api/summary?lang=fr"), msg);
+    assert_eq!(error_of(&s, "/api/summary?lang=de"), "Noch kein Scan geladen.");
+
+    post(&s, "/api/open-cached", json!({"path": first}));
+    let (en, de) = (get(&s, "/api/summary"), get(&s, "/api/summary?lang=de"));
+    assert_eq!(en["ages"][0]["label"], "< 1 week");
+    assert_eq!(de["ages"][0]["label"], "< 1 Woche");
+    assert_eq!(en["ages"][0]["short"], "<1w");
+    assert_eq!(de["ages"][0]["short"], "<1W");
+    assert_eq!(en["recs"].as_array().unwrap().len(), de["recs"].as_array().unwrap().len());
+    assert!(en["recs"][0]["title"] != de["recs"][0]["title"], "{}", en["recs"][0]);
+    // Die Auswertung ist zwischengespeichert. Das darf die Sprache nicht festhalten.
+    assert_eq!(get(&s, "/api/summary")["ages"][0]["label"], "< 1 week");
+
+    let (je, jd) = (get(&s, "/api/junk"), get(&s, "/api/junk?lang=de"));
+    let bin = |j: &Value| ["recycle", "trash"].iter().find_map(|id| rule(j, id)).unwrap().clone();
+    assert_eq!(bin(&je)["title"], "Recycle bin");
+    assert_eq!(bin(&jd)["title"], "Papierkorb");
+
+    // Schutzmeldungen: in der Zeile, in der Detailansicht und beim Ablehnen.
+    let id = find(&s, system_file)["id"].clone();
+    let reason = |lang: &str| get(&s, &format!("/api/node?id={id}&lang={lang}"))["guard"]["reason"].as_str().unwrap().to_string();
+    assert!(reason("en").contains("Deleting it could damage"), "{}", reason("en"));
+    assert!(reason("de").contains("beschädigen"), "{}", reason("de"));
+    let r = post(&s, "/api/cart/add?lang=de", json!({"ids": [id]}));
+    assert!(r["blocked"][0]["why"].as_str().unwrap().contains("beschädigen"), "{r}");
+
+    // Beide Bestaetigungswoerter gelten, andere nicht.
+    let (c, b) = raw(s.port, "POST", "/api/cleanup/start?lang=de", r#"{"mode":"permanent","confirm":"ja"}"#, Some("t"), None);
+    assert_eq!(c, 400);
+    assert!(b.contains("LÖSCHEN"), "{b}");
+    let (_, b) = raw(s.port, "POST", "/api/cleanup/start", r#"{"mode":"permanent","confirm":"ja"}"#, Some("t"), None);
+    assert!(b.contains("DELETE"), "{b}");
+    for (word, name) in [("DELETE", "current.pdf"), ("LÖSCHEN", "aborted.iso.crdownload")] {
+        let f = find(&s, name);
+        post(&s, "/api/cart/clear", json!({}));
+        post(&s, "/api/cart/add", json!({"ids": [f["id"]]}));
+        let last = cleanup(&s, json!({"mode": "permanent", "confirm": word}));
+        assert_eq!(last["ok"], 1, "{word}: {last}");
+    }
 }
 
 #[test]
@@ -561,7 +642,7 @@ fn demo_mode_works_without_any_file_access() {
     let s = start(&["--demo", "--data-dir", data.to_str().unwrap()]);
     assert_eq!(get(&s, "/api/status")["mode"], "demo");
     let (first, second, real_folder, other, system_file) =
-        if cfg!(windows) { (r"C:\", r"E:\", r"C:\Users", r"D:\", "sys00001.dll") } else { ("/", "/mnt/archiv", "/home", "/etc", "sys00001.so") };
+        if cfg!(windows) { (r"C:\", r"E:\", r"C:\Users", r"D:\", "sys00001.dll") } else { ("/", "/mnt/archive", "/home", "/etc", "sys00001.so") };
     let d = get(&s, "/api/drives");
     assert!(d["drives"].as_array().unwrap().iter().all(|x| x["label"].as_str().unwrap().starts_with("DEMO")), "{d}");
 
@@ -587,7 +668,7 @@ fn demo_mode_works_without_any_file_access() {
 
     // Loeschen ist simuliert und aktualisiert nur die Zahlen.
     let before = sum["scanned"].as_u64().unwrap();
-    let f = find(&s, "aktuell.pdf");
+    let f = find(&s, "current.pdf");
     post(&s, "/api/cart/add", json!({"ids": [f["id"]]}));
     let last = cleanup(&s, json!({"mode": "recycle"}));
     assert_eq!(last["ok"], 1);

@@ -16,7 +16,7 @@ Storage Map shows what fills a drive and helps you clean it up. It runs on Windo
 
 *All screenshots use the built-in demo with invented files.*
 
-The user interface is in German so far. The MCP interface and the command line are in English.
+The interface is available in English and German. It follows the browser language, and a switch in the header changes it. The MCP interface and the command line are in English.
 
 ## Download
 
@@ -36,7 +36,7 @@ Windows builds are not code-signed, so SmartScreen may warn on first start. The 
 
 ## Start
 
-Start `StorageMap.exe` or `storage-map`, pick a drive and click **Scannen**. The scan reads names, sizes and dates. Files are only read during a duplicate search, and nothing is removed until you confirm it.
+Start `StorageMap.exe` or `storage-map`, pick a drive and click **Scan**. The scan reads names, sizes and dates. Files are only read during a duplicate search, and nothing is removed until you confirm it.
 
 ## Views
 
@@ -44,17 +44,17 @@ Start `StorageMap.exe` or `storage-map`, pick a drive and click **Scannen**. The
 
 | View | Purpose |
 |---|---|
-| **Übersicht** | Usage, drive health, cleanup potential, largest folders and files, age and size distribution |
-| **Speicherkarte** | Treemap: each area is as large as the space it takes. Colored by file type or age, zoom by double-click or mouse wheel |
-| **Ringe** | The same data as a sunburst, which shows nesting well |
-| **Ordner** | Expandable tree with size bars. "Größtem Pfad folgen" leads straight to the main cause |
-| **Große Dateien** | Sortable list with filters for type, size, age and search, plus CSV export |
-| **Dateitypen** | Categories and extensions, one click leads to the files |
-| **Aufräumen** | Fixed rules with a reason and a risk level: temp files, caches, build folders, old installers, logs and more |
-| **Duplikate** | Compares size, then start and end, then full content. Also finds duplicate folders |
-| **Alt & ungenutzt** | Files unchanged for a long time and forgotten folders |
-| **Verlauf** | Usage across scans, a forecast of when the drive is full, and what grew since the last scan |
-| **KI-Zugriff** | Permissions and log of the MCP server |
+| **Overview** | Usage, drive health, cleanup potential, largest folders and files, age and size distribution |
+| **Storage map** | Treemap: each area is as large as the space it takes. Colored by file type or age, zoom by double-click or mouse wheel |
+| **Rings** | The same data as a sunburst, which shows nesting well |
+| **Folders** | Expandable tree with size bars. "Follow largest path" leads straight to the main cause |
+| **Large files** | Sortable list with filters for type, size, age and search, plus CSV export |
+| **File types** | Categories and extensions, one click leads to the files |
+| **Cleanup** | Fixed rules with a reason and a risk level: temp files, caches, build folders, old installers, logs and more |
+| **Duplicates** | Compares size, then start and end, then full content. Also finds duplicate folders |
+| **Old & unused** | Files unchanged for a long time and forgotten folders |
+| **History** | Usage across scans, a forecast of when the drive is full, and what grew since the last scan |
+| **AI access** | Permissions and log of the MCP server |
 
 Keyboard: `1` to `9` switch views, `Ctrl+K` searches, `Del` puts the selection on the cleanup list, `Backspace` goes up in the treemap. In the search, `*.mp4` filters by extension and a word containing `/` searches the whole path.
 
@@ -69,7 +69,7 @@ Keyboard: `1` to `9` switch views, `Ctrl+K` searches, `Del` puts the selection o
 
 ## MCP server
 
-`storage-map --mcp` makes the results available to AI clients such as Claude Desktop, Claude Code or Cursor over the [Model Context Protocol](https://modelcontextprotocol.io). The default is read-only. Writing and deleting must be enabled in the **KI-Zugriff** view, each with a warning that has to be confirmed.
+`storage-map --mcp` makes the results available to AI clients such as Claude Desktop, Claude Code or Cursor over the [Model Context Protocol](https://modelcontextprotocol.io). The default is read-only. Writing and deleting must be enabled in the **AI access** view, each with a warning that has to be confirmed.
 
 File and folder names go to the AI client and usually on to its provider. File contents never do. See [docs/mcp.md](docs/mcp.md) for setup, tools and the security model.
 
@@ -81,7 +81,7 @@ File and folder names go to the AI client and usually on to its provider. File c
 storage-map --help
 ```
 
-`storage-map --scan PATH` scans without a window and adds the result to the history. Run from the Windows Task Scheduler or cron, it builds up a history on its own. The **Verlauf** view shows the matching command.
+`storage-map --scan PATH` scans without a window and adds the result to the history. Run from the Windows Task Scheduler or cron, it builds up a history on its own. The **History** view shows the matching command.
 
 ## Where data is stored
 

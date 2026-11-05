@@ -1,6 +1,7 @@
 // Diagramme: duenne Markierungen, feine Linien, Werte im Tooltip. Text traegt nie die Datenfarbe.
 
 import { h, icon, withTip, tipBlock, fmtBytes, fmtPct, showTip, hideTip, catVar, catInk } from './util.js';
+import { t, tn } from './i18n.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const svg = (tag, attrs = {}, ...kids) => {
@@ -33,7 +34,7 @@ export function segBar(parts, { total, onClick } = {}) {
 export function catParts(cats) {
   return [...cats].sort((a, b) => b.alloc - a.alloc).map((c) => ({
     id: c.id, name: c.name, value: c.alloc, color: catVar(c.id), ink: catInk(c.id),
-    sub: `${c.files.toLocaleString('de-DE')} Dateien`,
+    sub: tn('unit.files', c.files),
   }));
 }
 
@@ -50,7 +51,7 @@ export function rankBars(rows, { name, path, value, color, onClick, onContext, m
       h('div', { class: 'val' }, fmt(v)),
       path ? h('div', { class: 'p', style: { gridColumn: '1 / -1' }, title: path(r) }, '‎' + path(r)) : null,
       h('div', { class: 'bar', style: { width: `${Math.max(0.5, (v / top) * 100)}%`, background: color ? color(r) : 'var(--c0)' } }));
-    return total ? withTip(el, () => tipBlock(fmt(v), name(r), fmtPct(v / total) + ' der Gesamtgröße', path ? path(r) : null)) : el;
+    return total ? withTip(el, () => tipBlock(fmt(v), name(r), t('chart.ofTotal', { pct: fmtPct(v / total) }), path ? path(r) : null)) : el;
   }));
 }
 
@@ -91,9 +92,9 @@ export function columns(rows, { value = (r) => r.alloc, label = (r) => r.label, 
     for (let i = 0; i <= 2; i++) {
       const y = T + ((H - T - B) * i) / 2;
       if (i < 2) root.append(svg('line', { x1: L, x2: W, y1: y, y2: y, class: 'grid-line' }));
-      const t = svg('text', { x: L - 6, y: y + 4, 'text-anchor': 'end' });
-      t.textContent = fmtBytes(top * (1 - i / 2)).replace(',00', '');
-      root.append(t);
+      const tick = svg('text', { x: L - 6, y: y + 4, 'text-anchor': 'end' });
+      tick.textContent = fmtBytes(top * (1 - i / 2)).replace(/[.,]00(?= )/, '');
+      root.append(tick);
     }
     root.append(svg('line', { x1: L, x2: W, y1: H - B, y2: H - B, class: 'axis-line' }));
     rows.forEach((r, i) => {
@@ -113,9 +114,9 @@ export function columns(rows, { value = (r) => r.alloc, label = (r) => r.label, 
       hit.addEventListener('blur', hideTip);
       if (onClick) hit.addEventListener('click', () => onClick(r));
       if (i % every === 0) {
-        const t = svg('text', { x: L + band * i + band / 2, y: H - 7, 'text-anchor': 'middle' });
-        t.textContent = label(r);
-        root.append(t);
+        const text = svg('text', { x: L + band * i + band / 2, y: H - 7, 'text-anchor': 'middle' });
+        text.textContent = label(r);
+        root.append(text);
       }
     });
     return root;
@@ -147,20 +148,20 @@ export function lineChart(points, { fmtY = fmtBytes, fmtX, height = 220, limit, 
     for (let i = 0; i <= 3; i++) {
       const v = y0 + ((y1 - y0) * i) / 3;
       root.append(svg('line', { x1: L, x2: W - R, y1: sy(v), y2: sy(v), class: i === 0 ? 'axis-line' : 'grid-line' }));
-      const t = svg('text', { x: L - 6, y: sy(v) + 4, 'text-anchor': 'end' });
-      t.textContent = fmtY(v);
-      root.append(t);
+      const tick = svg('text', { x: L - 6, y: sy(v) + 4, 'text-anchor': 'end' });
+      tick.textContent = fmtY(v);
+      root.append(tick);
     }
     [0, Math.floor((points.length - 1) / 2), points.length - 1].forEach((i) => {
-      const t = svg('text', { x: sx(xs[i]), y: H - 6, 'text-anchor': i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle' });
-      t.textContent = fmtX(xs[i]);
-      root.append(t);
+      const tick = svg('text', { x: sx(xs[i]), y: H - 6, 'text-anchor': i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle' });
+      tick.textContent = fmtX(xs[i]);
+      root.append(tick);
     });
     if (limit) {
       root.append(svg('line', { x1: L, x2: W - R, y1: sy(limit), y2: sy(limit), stroke: 'var(--critical)', 'stroke-width': 1 }));
-      const t = svg('text', { x: W - R, y: sy(limit) + 14, 'text-anchor': 'end' });
-      t.textContent = limitLabel || 'Kapazität';
-      root.append(t);
+      const text = svg('text', { x: W - R, y: sy(limit) + 14, 'text-anchor': 'end' });
+      text.textContent = limitLabel || t('chart.capacity');
+      root.append(text);
     }
     const path = points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x)},${sy(p.y)}`).join('');
     root.append(svg('path', { d: `${path}L${sx(x1)},${sy(y0)}L${sx(x0)},${sy(y0)}Z`, fill: 'var(--c0)', opacity: .1 }));
@@ -212,10 +213,10 @@ export function divergingRows(rows, { name, delta, onClick }) {
 }
 
 export function severity(share) {
-  if (share >= 0.95) return { color: 'var(--critical)', label: 'Kritisch voll', icon: 'warn' };
-  if (share >= 0.9) return { color: 'var(--serious)', label: 'Sehr voll', icon: 'warn' };
-  if (share >= 0.8) return { color: 'var(--warning)', label: 'Wird knapp', icon: 'warn' };
-  return { color: 'var(--c0)', label: 'Genug Platz', icon: 'check' };
+  if (share >= 0.95) return { color: 'var(--critical)', label: t('state.critical'), icon: 'warn' };
+  if (share >= 0.9) return { color: 'var(--serious)', label: t('state.veryFull'), icon: 'warn' };
+  if (share >= 0.8) return { color: 'var(--warning)', label: t('state.tight'), icon: 'warn' };
+  return { color: 'var(--c0)', label: t('state.enough'), icon: 'check' };
 }
 export function stateBadge(share) {
   const s = severity(share);

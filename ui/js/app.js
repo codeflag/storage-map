@@ -1,13 +1,14 @@
 // Rahmen der Anwendung: Navigation, Statusabfrage, Inspektor, Aufraeumliste.
 
 import {
-  initToken, authToken, api, qs, h, icon, clear, fill, App, fmtBytes, fmtNum, fmtDate, fmtAgo,
-  catVar, CAT_NAMES, fail, toast, dialog, hideTip, closeMenu, rowMenu,
+  initToken, api, qs, h, icon, clear, fill, App, fmtBytes, fmtNum, fmtDate, fmtAgo, downloadCsv,
+  catVar, catName, fail, toast, dialog, hideTip, closeMenu, rowMenu,
 } from './util.js';
 import { severity } from './charts.js';
 import { viewHome, viewScanning, viewOverview, viewMap, viewRings, viewTree } from './views.js';
 import { viewFiles, viewTypes, viewDups, viewOld, viewClean, viewHistory, fileRow } from './views2.js';
-import { viewMcp, LEVEL_NAME } from './views3.js';
+import { viewMcp } from './views3.js';
+import { t, tn, tp, lang, setLang } from './i18n.js';
 
 const S = {
   status: null, view: null, id: null, params: {}, selId: null, selDir: false, summary: null,
@@ -16,20 +17,20 @@ const S = {
 };
 
 const NAV = [
-  'Ansichten',
-  ['overview', 'Übersicht', 'dash', viewOverview],
-  ['map', 'Speicherkarte', 'map', viewMap],
-  ['rings', 'Ringe', 'rings', viewRings],
-  ['tree', 'Ordner', 'tree', viewTree],
-  ['files', 'Große Dateien', 'files', viewFiles],
-  ['types', 'Dateitypen', 'types', viewTypes],
-  'Aufräumen & Verlauf',
-  ['clean', 'Aufräumen', 'broom', viewClean],
-  ['dups', 'Duplikate', 'dup', viewDups],
-  ['old', 'Alt & ungenutzt', 'clock', viewOld],
-  ['history', 'Verlauf', 'history', viewHistory],
-  'Zugriff',
-  ['mcp', 'KI-Zugriff', 'plug', viewMcp],
+  'nav.views',
+  ['overview', 'nav.overview', 'dash', viewOverview],
+  ['map', 'nav.map', 'map', viewMap],
+  ['rings', 'nav.rings', 'rings', viewRings],
+  ['tree', 'nav.tree', 'tree', viewTree],
+  ['files', 'nav.files', 'files', viewFiles],
+  ['types', 'nav.types', 'types', viewTypes],
+  'nav.groupClean',
+  ['clean', 'nav.clean', 'broom', viewClean],
+  ['dups', 'nav.dups', 'dup', viewDups],
+  ['old', 'nav.old', 'clock', viewOld],
+  ['history', 'nav.history', 'history', viewHistory],
+  'nav.groupAccess',
+  ['mcp', 'nav.mcp', 'plug', viewMcp],
 ];
 const NAV_ITEMS = NAV.filter((n) => Array.isArray(n));
 const VIEWS = Object.fromEntries(NAV_ITEMS.map((n) => [n[0], n]));
@@ -58,27 +59,46 @@ function toggleTheme() {
   remount();
 }
 
+/// Wechselt die Sprache: Alles wird neu gezeichnet, und das Backend liefert seine Texte ab jetzt in der neuen Sprache.
+async function switchLang(l) {
+  if (l === lang() || document.querySelector('.scrim')) return;
+  setLang(l);
+  const sel = S.selId;
+  await teardown();
+  S.summary = null;
+  shell();
+  chipKey = null;
+  trayKey = null;
+  drawBanner(); drawChip(); drawTray();
+  await route(true);
+  if (sel !== null) App.select(sel);
+}
+
 function shell() {
   bannerEl = h('div', { class: 'banner', hidden: true });
-  chipEl = h('button', { class: 'chip', title: 'Laufwerk wechseln', onclick: () => App.closeIndex() });
+  chipEl = h('button', { class: 'chip', title: t('top.switchDrive'), onclick: () => App.closeIndex() });
   searchEl = h('input', {
-    type: 'search', placeholder: 'Dateien und Ordner suchen…', 'aria-label': 'Suche',
+    type: 'search', placeholder: t('top.searchPlaceholder'), 'aria-label': t('top.searchLabel'),
     onkeydown: (e) => {
       if (e.key === 'Enter' && searchEl.value.trim()) { App.go('files', null, { q: searchEl.value.trim() }); searchEl.value = ''; searchEl.blur(); }
       if (e.key === 'Escape') searchEl.blur();
     },
   });
   const top = h('div', { class: 'top' },
-    h('button', { class: 'brand', onclick: () => App.go('overview'), 'aria-label': 'Zur Übersicht' },
+    h('button', { class: 'brand', onclick: () => App.go('overview'), 'aria-label': t('top.toOverview') },
       h('img', { class: 'mark', src: 'favicon.svg', alt: '' }), h('span', { class: 'word' }, 'STORAGE MAP')),
     chipEl,
-    h('button', { class: 'btn', id: 'rescan', onclick: () => { const r = S.status?.index?.root; if (r) App.startScan(r); } }, icon('refresh'), 'Neu scannen'),
-    h('div', { class: 'search' }, icon('search'), searchEl, h('kbd', null, 'Strg K')),
-    h('button', { class: 'btn icon-only', title: 'Hell / Dunkel', 'aria-label': 'Hell oder dunkel', onclick: toggleTheme }, icon('theme')),
-    h('button', { class: 'btn icon-only', title: 'Storage Map beenden', 'aria-label': 'Beenden', onclick: () => App.quit() }, icon('power')));
-  navEl = h('nav', { class: 'nav', 'aria-label': 'Ansichten' });
+    h('button', { class: 'btn', id: 'rescan', onclick: () => { const r = S.status?.index?.root; if (r) App.startScan(r); } }, icon('refresh'), t('top.rescan')),
+    h('div', { class: 'search' }, icon('search'), searchEl, h('kbd', null, t('top.kbd'))),
+    h('div', { class: 'seg lang-switch', role: 'group', 'aria-label': t('top.language') },
+      [['en', 'English'], ['de', 'Deutsch']].map(([l, name]) => h('button', {
+        class: lang() === l ? 'on' : '', lang: l, title: name, 'aria-label': name, 'aria-pressed': lang() === l ? 'true' : 'false', onclick: () => switchLang(l),
+      }, l.toUpperCase()))),
+    h('button', { class: 'btn icon-only', title: t('top.theme'), 'aria-label': t('top.themeLabel'), onclick: toggleTheme }, icon('theme')),
+    h('button', { class: 'btn icon-only', title: t('top.quitTitle'), 'aria-label': t('top.quitLabel'), onclick: () => App.quit() }, icon('power')));
+  navEl = h('nav', { class: 'nav', 'aria-label': t('nav.views') });
   mainEl = h('main', { class: 'main', tabindex: -1 });
-  sideEl = h('aside', { class: 'side closed', 'aria-label': 'Details' });
+  sideEl = h('aside', { class: 'side closed', 'aria-label': t('top.details') });
   trayEl = h('div', { class: 'tray', hidden: true });
   trayEl.style.display = 'none';
   shellEl = h('div', { class: 'shell' }, bannerEl, top, navEl, mainEl, sideEl, trayEl);
@@ -92,15 +112,16 @@ function drawNav() {
   clear(navEl);
   let n = 1;
   NAV.forEach((item) => {
-    if (typeof item === 'string') { if (item !== 'Ansichten') navEl.append(h('div', { class: 'label sep' }, item)); return; }
-    const [key, label, ic] = item;
+    if (typeof item === 'string') { if (item !== 'nav.views') navEl.append(h('div', { class: 'label sep' }, t(item))); return; }
+    const [key, labelKey, ic] = item;
+    const label = t(labelKey);
     const level = S.status?.mcpLevel;
-    const badge = key === 'clean' && S.summary?.safeBytes ? fmtBytes(S.summary.safeBytes) : key === 'dups' && S.status?.dups?.running ? 'läuft' : key === 'mcp' ? LEVEL_NAME[level] : null;
+    const badge = key === 'clean' && S.summary?.safeBytes ? fmtBytes(S.summary.safeBytes) : key === 'dups' && S.status?.dups?.running ? t('nav.running') : key === 'mcp' && level ? t(`level.${level}`) : null;
     navEl.append(h('button', { class: S.view === key ? 'on' : '', 'aria-current': S.view === key ? 'page' : undefined, title: `${label} (${n})`, onclick: () => App.go(key) },
       icon(ic), h('span', null, label), badge ? h('span', { class: 'badge num' + (key === 'mcp' && (level === 'write' || level === 'delete') ? ' badge-warn' : '') }, badge) : null));
     n++;
   });
-  navEl.append(h('div', { class: 'foot' }, `Version ${S.status?.version || ''}`));
+  navEl.append(h('div', { class: 'foot' }, t('nav.version', { v: S.status?.version || '' })));
 }
 
 let chipKey = null, trayKey = null;
@@ -118,13 +139,12 @@ function drawChip() {
   fill(chipEl, 
     icon('drive'), h('b', { class: 'ellipsis' }, ix.root),
     ix.total ? h('div', { class: 'chip-meter' }, h('i', { style: { width: `${share * 100}%`, background: sev.color } })) : null,
-    ix.total ? h('span', { class: 'num soft', style: { whiteSpace: 'nowrap' } }, `${fmtBytes(ix.free)} frei`) : h('span', { class: 'num soft' }, fmtBytes(ix.alloc)));
+    ix.total ? h('span', { class: 'num soft', style: { whiteSpace: 'nowrap' } }, t('chip.free', { size: fmtBytes(ix.free) })) : h('span', { class: 'num soft' }, fmtBytes(ix.alloc)));
 }
 
 function drawBanner() {
   const m = S.status?.mode;
-  const text = m === 'demo' ? 'DEMO: Erfundene Laufwerke und Dateien. Es wird nichts gelesen und nichts gelöscht.'
-    : m === 'sandbox' ? 'TESTBETRIEB: Nur der Testordner wird angefasst. Papierkorb und Dateimanager sind simuliert.' : '';
+  const text = m === 'demo' ? t('banner.demo') : m === 'sandbox' ? t('banner.sandbox') : '';
   bannerEl.hidden = !text;
   bannerEl.style.display = text ? '' : 'none';
   bannerEl.textContent = text;
@@ -139,10 +159,10 @@ function drawTray() {
   if (key === trayKey) return;
   trayKey = key;
   fill(trayEl, 
-    icon('broom'), h('span', null, 'Aufräumliste:'),
-    h('b', null, fmtBytes(c.bytes)), h('span', { class: 'muted num' }, `${fmtNum(c.count)} ${c.count === 1 ? 'Eintrag' : 'Einträge'}`),
+    icon('broom'), h('span', null, t('tray.label')),
+    h('b', null, fmtBytes(c.bytes)), h('span', { class: 'muted num' }, tn('unit.entries', c.count)),
     h('span', { class: 'grow' }),
-    h('button', { class: 'btn primary', onclick: () => openCart() }, 'Prüfen und aufräumen…'));
+    h('button', { class: 'btn primary', onclick: () => openCart() }, t('tray.review')));
 }
 
 /* ---------- Router ---------- */
@@ -231,9 +251,9 @@ function showScan() {
 async function poll() {
   let st;
   try { st = await api('status'); } catch (e) {
-    if (String(e.message).includes('angemeldet')) {
+    if (e.status === 401) {
       clear(mainEl);
-      mainEl.append(h('div', { class: 'panel empty' }, 'Sitzung abgelaufen. Bitte Storage Map neu starten.'));
+      mainEl.append(h('div', { class: 'panel empty' }, t('app.sessionExpired')));
     }
     return null;
   }
@@ -282,21 +302,21 @@ function loop() {
 App.startScan = (path) => api('scan', { path }).then(() => poll()).catch(fail);
 App.openCached = (path) => api('open-cached', { path }).then(() => poll()).catch(fail);
 App.closeIndex = () => api('close', {}).then(() => { location.hash = ''; return poll(); }).catch(fail);
-App.reveal = (id) => api('reveal', { id }).then((r) => { if (r.simulated) toast('Im Test-Betrieb nur simuliert.'); }).catch(fail);
-App.open = (id) => api('open', { id }).then((r) => { if (r.simulated) toast('Im Test-Betrieb nur simuliert.'); }).catch(fail);
+App.reveal = (id) => api('reveal', { id }).then((r) => { if (r.simulated) toast(t('common.simulated')); }).catch(fail);
+App.open = (id) => api('open', { id }).then((r) => { if (r.simulated) toast(t('common.simulated')); }).catch(fail);
 App.copyPath = async (id, path) => {
   try {
     const p = path || (await api('node?' + qs({ id }))).path;
     await navigator.clipboard.writeText(p);
-    toast('Pfad kopiert.');
+    toast(t('app.pathCopied'));
   } catch (e) { fail(e); }
 };
 App.afterCart = (r) => {
   if (r.blocked?.length) {
-    toast(`${r.blocked.length === 1 ? 'Ein geschützter Eintrag wurde' : `${fmtNum(r.blocked.length)} geschützte Einträge wurden`} ausgelassen: ${r.blocked[0].why}`, 'err');
+    toast(tn('cart.blocked', r.blocked.length, { why: r.blocked[0].why }), 'err');
   }
-  if (r.added) toast(`${fmtNum(r.added)} hinzugefügt. Aufräumliste: ${fmtBytes(r.bytes)}`);
-  else if (!r.blocked?.length) toast('Schon auf der Aufräumliste.');
+  if (r.added) toast(t('cart.added', { n: fmtNum(r.added), size: fmtBytes(r.bytes) }));
+  else if (!r.blocked?.length) toast(t('cart.already'));
   poll();
 };
 App.addToCart = async (ids) => {
@@ -304,16 +324,16 @@ App.addToCart = async (ids) => {
   if (r) App.afterCart(r);
   return r;
 };
-App.elevate = () => api('elevate', {}).then(() => toast('Storage Map startet neu…')).catch(fail);
+App.elevate = () => api('elevate', {}).then(() => toast(t('app.restarting'))).catch(fail);
 App.quit = () => {
   dialog({
-    title: 'Storage Map beenden?',
-    body: h('p', { class: 'soft' }, 'Der letzte Scan bleibt gespeichert und lässt sich beim nächsten Start sofort öffnen.'),
+    title: t('quit.title'),
+    body: h('p', { class: 'soft' }, t('quit.body')),
     actions: [
-      { label: 'Abbrechen' },
-      { label: 'Beenden', kind: 'primary', run: () => api('quit', {}).then((r) => {
+      { label: t('common.cancel') },
+      { label: t('top.quitLabel'), kind: 'primary', run: () => api('quit', {}).then((r) => {
         // Das eigene Fenster schliesst das Programm selbst. Einen Tab im normalen Browser darf eine Seite nicht schliessen.
-        fill(document.body, h('div', { class: 'empty', style: { padding: '20vh 0' } }, r.closesWindow ? 'Storage Map wird beendet…' : 'Storage Map wurde beendet. Du kannst diesen Tab schließen.'));
+        fill(document.body, h('div', { class: 'empty', style: { padding: '20vh 0' } }, r.closesWindow ? t('quit.closing') : t('quit.done')));
         window.close();
       }).catch(fail) },
     ],
@@ -321,14 +341,14 @@ App.quit = () => {
 };
 App.emptyBin = (bytes) => {
   dialog({
-    title: 'Papierkorb leeren?',
+    title: t('bin.title'),
     body: [
-      h('p', null, `Das gibt ${fmtBytes(bytes)} auf diesem Laufwerk frei.`),
-      h('div', { class: 'notice warn' }, icon('warn'), h('div', null, App.isWindows() ? 'Die Dateien im Papierkorb sind danach endgültig weg. Windows fragt zur Sicherheit noch einmal nach.' : 'Die Dateien im Papierkorb sind danach endgültig weg.')),
+      h('p', null, t('bin.frees', { size: fmtBytes(bytes) })),
+      h('div', { class: 'notice warn' }, icon('warn'), h('div', null, App.isWindows() ? t('bin.warnWin') : t('bin.warn'))),
     ],
     actions: [
-      { label: 'Abbrechen' },
-      { label: 'Papierkorb leeren', kind: 'danger', icon: 'trash', run: () => api('recycle/empty', {}).then(() => { toast('Erledigt.'); poll(); }).catch(fail) },
+      { label: t('common.cancel') },
+      { label: t('bin.empty'), kind: 'danger', icon: 'trash', run: () => api('recycle/empty', {}).then(() => { toast(t('common.done')); poll(); }).catch(fail) },
     ],
   });
 };
@@ -336,22 +356,20 @@ App.showDenied = async () => {
   const d = await api('denied').catch(fail);
   if (!d) return;
   dialog({
-    title: 'Nicht erfasst',
+    title: t('denied.title'),
     wide: true,
     body: [
-      h('p', { class: 'soft' }, App.isWindows()
-        ? 'Windows meldet mehr belegten Platz, als Dateien gefunden wurden. Das sind Systemverwaltung (MFT), Schattenkopien und Ordner ohne Leserechte. Mit Adminrechten lässt sich mehr erfassen.'
-        : 'Das System meldet mehr belegten Platz, als Dateien gefunden wurden. Das sind Verwaltungsdaten des Dateisystems, reservierter Platz, Snapshots und Ordner ohne Leserechte. Mit sudo gestartet lässt sich mehr erfassen.'),
-      d.total ? h('div', { class: 'label' }, `${fmtNum(d.total)} nicht lesbare Ordner`) : null,
+      h('p', { class: 'soft' }, App.isWindows() ? t('denied.win') : t('denied.linux')),
+      d.total ? h('div', { class: 'label' }, tn('denied.count', d.total)) : null,
       d.total ? h('div', { class: 'dirlist', style: { height: '260px' } }, d.rows.map((r) => h('div', { class: 'mono', style: { padding: '3px 8px', borderBottom: '1px solid var(--line)' } }, r.path))) : null,
     ],
-    actions: [{ label: 'Schließen' }, S.status?.elevated || !S.status?.canElevate ? null : { label: 'Mit Adminrechten neu starten', kind: 'primary', icon: 'shield', run: () => App.elevate() }].filter(Boolean),
+    actions: [{ label: t('common.close') }, S.status?.elevated || !S.status?.canElevate ? null : { label: t('common.adminRestart'), kind: 'primary', icon: 'shield', run: () => App.elevate() }].filter(Boolean),
   });
 };
 
 App.pickFolder = (title, done) => {
   let cur = '';
-  const input = h('input', { class: 'field', style: { width: '100%' }, placeholder: App.isWindows() ? 'D:\\Daten' : '/mnt/daten', 'aria-label': 'Pfad' });
+  const input = h('input', { class: 'field', style: { width: '100%' }, placeholder: App.isWindows() ? t('pick.placeholderWin') : t('pick.placeholderLinux'), 'aria-label': t('pick.path') });
   const list = h('div', { class: 'dirlist' });
   const load = async (p) => {
     try {
@@ -361,7 +379,7 @@ App.pickFolder = (title, done) => {
       clear(list);
       if (d.path) list.append(h('button', { onclick: () => load(d.parent || '') }, icon('up'), '..'));
       d.dirs.forEach((x) => list.append(h('button', { onclick: () => load(x.path) }, icon('folder'), x.name)));
-      if (!d.dirs.length) list.append(h('div', { class: 'empty' }, 'Keine Unterordner.'));
+      if (!d.dirs.length) list.append(h('div', { class: 'empty' }, t('pick.noSub')));
     } catch (e) { fail(e); }
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') load(input.value); });
@@ -369,8 +387,8 @@ App.pickFolder = (title, done) => {
     title,
     body: [input, list],
     actions: [
-      { label: 'Abbrechen' },
-      { label: 'Diesen Ordner wählen', kind: 'primary', run: () => { const p = input.value.trim() || cur; if (!p) { toast('Bitte einen Ordner wählen.'); return true; } done(p); return false; } },
+      { label: t('common.cancel') },
+      { label: t('pick.choose'), kind: 'primary', run: () => { const p = input.value.trim() || cur; if (!p) { toast(t('pick.please')); return true; } done(p); return false; } },
     ],
   });
   load('');
@@ -388,41 +406,41 @@ App.select = async (id, silent) => {
   const parent = n.ancestors.at(-2);
   const blocked = n.guard.level === 'block';
   const flags = [];
-  if (n.flags & 2) flags.push('versteckt');
-  if (n.flags & 4) flags.push('Systemdatei');
-  if (n.flags & 8) flags.push('Verknüpfung');
-  if (n.flags & 512) flags.push('anderes Laufwerk eingehängt');
-  if (n.flags & 16) flags.push('Hardlink');
-  if (n.flags & 32) flags.push('nur online');
-  if (n.flags & 256) flags.push('komprimiert');
+  if (n.flags & 2) flags.push(t('side.hidden'));
+  if (n.flags & 4) flags.push(t('side.systemFile'));
+  if (n.flags & 8) flags.push(t('side.link'));
+  if (n.flags & 512) flags.push(t('side.mount'));
+  if (n.flags & 16) flags.push(t('side.hardlink'));
+  if (n.flags & 32) flags.push(t('side.online'));
+  if (n.flags & 256) flags.push(t('side.compressed'));
   const catTotal = (n.cats || []).reduce((a, b) => a + b, 0);
   fill(sideEl, 
-    h('div', { class: 'row' }, h('span', { class: 'label' }, n.dir ? 'Ordner' : 'Datei'),
-      h('button', { class: 'btn ghost small icon-only', style: { marginLeft: 'auto' }, 'aria-label': 'Details schließen', onclick: closeSide }, icon('x'))),
+    h('div', { class: 'row' }, h('span', { class: 'label' }, n.dir ? t('common.folder') : t('common.file')),
+      h('button', { class: 'btn ghost small icon-only', style: { marginLeft: 'auto' }, 'aria-label': t('side.close'), onclick: closeSide }, icon('x'))),
     h('div', null, h('div', { class: 'title' }, n.name), h('div', { class: 'path', style: { marginTop: '4px' } }, n.path)),
     h('div', null, h('div', { class: 'big num' }, fmtBytes(n.alloc)),
-      h('div', { class: 'muted' }, 'belegt auf dem Datenträger')),
+      h('div', { class: 'muted' }, t('side.allocated'))),
     n.guard.level === 'block' ? h('div', { class: 'notice block' }, icon('lock'), h('div', null, n.guard.reason))
       : n.guard.level === 'warn' ? h('div', { class: 'notice warn' }, icon('warn'), h('div', null, n.guard.reason)) : null,
     h('div', { class: 'acts' },
-      h('button', { class: 'btn primary wide', disabled: blocked || id === 0, onclick: () => App.addToCart([id]) }, icon(blocked ? 'lock' : 'plus'), blocked ? 'Geschützt' : 'Zur Aufräumliste'),
-      h('button', { class: 'btn', onclick: () => App.reveal(id) }, icon('explorer'), App.isWindows() ? 'Explorer' : 'Dateimanager'),
-      h('button', { class: 'btn', onclick: () => App.open(id) }, icon('open'), 'Öffnen'),
-      h('button', { class: 'btn', onclick: () => App.go('map', n.dir ? id : parent?.id ?? 0) }, icon('map'), 'Karte'),
-      h('button', { class: 'btn', onclick: () => App.go('tree', id) }, icon('tree'), 'Baum'),
-      h('button', { class: 'btn wide', onclick: () => App.copyPath(id, n.path) }, icon('copy'), 'Pfad kopieren')),
+      h('button', { class: 'btn primary wide', disabled: blocked || id === 0, onclick: () => App.addToCart([id]) }, icon(blocked ? 'lock' : 'plus'), blocked ? t('common.protected') : t('common.addToList')),
+      h('button', { class: 'btn', onclick: () => App.reveal(id) }, icon('explorer'), App.isWindows() ? t('side.explorer') : t('side.fileManager')),
+      h('button', { class: 'btn', onclick: () => App.open(id) }, icon('open'), t('common.open')),
+      h('button', { class: 'btn', onclick: () => App.go('map', n.dir ? id : parent?.id ?? 0) }, icon('map'), t('side.map')),
+      h('button', { class: 'btn', onclick: () => App.go('tree', id) }, icon('tree'), t('side.tree')),
+      h('button', { class: 'btn wide', onclick: () => App.copyPath(id, n.path) }, icon('copy'), t('common.copyPath'))),
     h('dl', { class: 'kv' },
-      h('dt', null, 'Größe'), h('dd', null, fmtBytes(n.size)),
-      n.dir ? [h('dt', null, 'Dateien'), h('dd', null, fmtNum(n.files)), h('dt', null, 'Unterordner'), h('dd', null, fmtNum(n.dirs))] : [h('dt', null, 'Typ'), h('dd', null, `${CAT_NAMES[n.cat]}${n.ext ? ` (.${n.ext})` : ''}`)],
-      h('dt', null, n.dir ? 'Letzte Änderung' : 'Geändert'), h('dd', { title: fmtAgo(n.dir ? n.newest : n.mtime) }, fmtDate(n.dir ? n.newest : n.mtime)),
-      h('dt', null, 'Geöffnet'), h('dd', null, fmtDate(n.atime)),
-      h('dt', null, 'Erstellt'), h('dd', null, fmtDate(n.ctime)),
-      flags.length ? [h('dt', null, 'Merkmale'), h('dd', null, flags.join(', '))] : null),
-    n.dir && catTotal > 0 ? h('div', null, h('div', { class: 'label', style: { marginBottom: '6px' } }, 'Inhalt'),
-      h('div', { class: 'segbar', style: { height: '8px' } }, n.cats.map((v, i) => (v > 0 ? h('div', { class: 'part', style: { flex: `${v} 1 0`, background: catVar(i), padding: 0 }, title: `${CAT_NAMES[i]}: ${fmtBytes(v)}` }) : null)))) : null,
-    n.heavy?.length ? h('div', null, h('div', { class: 'label', style: { marginBottom: '4px' } }, 'Hauptverursacher'),
+      h('dt', null, t('common.size')), h('dd', null, fmtBytes(n.size)),
+      n.dir ? [h('dt', null, t('common.files')), h('dd', null, fmtNum(n.files)), h('dt', null, t('side.subfolders')), h('dd', null, fmtNum(n.dirs))] : [h('dt', null, t('common.type')), h('dd', null, `${catName(n.cat)}${n.ext ? ` (.${n.ext})` : ''}`)],
+      h('dt', null, n.dir ? t('side.lastChange') : t('common.modified')), h('dd', { title: fmtAgo(n.dir ? n.newest : n.mtime) }, fmtDate(n.dir ? n.newest : n.mtime)),
+      h('dt', null, t('common.opened')), h('dd', null, fmtDate(n.atime)),
+      h('dt', null, t('common.created')), h('dd', null, fmtDate(n.ctime)),
+      flags.length ? [h('dt', null, t('side.attributes')), h('dd', null, flags.join(', '))] : null),
+    n.dir && catTotal > 0 ? h('div', null, h('div', { class: 'label', style: { marginBottom: '6px' } }, t('side.contents')),
+      h('div', { class: 'segbar', style: { height: '8px' } }, n.cats.map((v, i) => (v > 0 ? h('div', { class: 'part', style: { flex: `${v} 1 0`, background: catVar(i), padding: 0 }, title: `${catName(i)}: ${fmtBytes(v)}` }) : null)))) : null,
+    n.heavy?.length ? h('div', null, h('div', { class: 'label', style: { marginBottom: '4px' } }, t('side.heavy')),
       h('div', { class: 'chain' }, n.heavy.map((c, i) => h('button', { style: { paddingLeft: `${3 + i * 7}px` }, onclick: () => App.select(c.id) }, h('span', { class: 'ellipsis' }, c.name), h('span', { class: 'pct' }, fmtBytes(c.alloc)))))) : null,
-    n.top?.length ? h('div', null, h('div', { class: 'label', style: { marginBottom: '4px' } }, 'Größte Einträge'),
+    n.top?.length ? h('div', null, h('div', { class: 'label', style: { marginBottom: '4px' } }, t('side.largest')),
       h('div', { class: 'chain' }, n.top.map((c) => h('button', { onclick: () => App.select(c.id), oncontextmenu: (e) => { e.preventDefault(); api('node?' + qs({ id: c.id })).then((r) => rowMenu(r, e.clientX, e.clientY)).catch(fail); } },
         icon(c.dir ? 'folder' : 'file'), h('span', { class: 'ellipsis' }, c.name), h('span', { class: 'pct' }, fmtBytes(c.alloc)))))) : null,
   );
@@ -438,47 +456,48 @@ async function openCart() {
     const tr = fileRow(r, { cols: ['alloc', 'mtime'] });
     const last = tr.lastElementChild;
     fill(last, h('button', {
-      class: 'btn ghost small icon-only', 'aria-label': `${r.name} entfernen`, title: 'Von der Liste nehmen',
+      class: 'btn ghost small icon-only', 'aria-label': t('common.removeName', { name: r.name }), title: t('cartDlg.takeOff'),
       onclick: async (e) => { e.stopPropagation(); await api('cart/remove', { ids: [r.id] }).catch(fail); tr.remove(); poll(); },
     }, icon('x')));
     return tr;
   }));
   const d = dialog({
-    title: 'Aufräumliste prüfen',
+    title: t('cartDlg.title'),
     wide: true,
     body: [
       h('div', { class: 'stats' },
-        h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Gesamt'), h('div', { class: 'v' }, fmtBytes(c.bytes))),
-        h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Einträge'), h('div', { class: 'v' }, fmtNum(c.count)))),
-      c.warnings ? h('div', { class: 'notice warn' }, icon('warn'), h('div', null, `${fmtNum(c.warnings)} ${c.warnings === 1 ? 'Eintrag liegt' : 'Einträge liegen'} in Programm- oder Einstellungsordnern (mit „Vorsicht“ markiert). Bitte prüfen.`)) : null,
-      isDemo ? h('div', { class: 'notice info' }, icon('info'), h('div', null, 'Demo: Es wird nichts wirklich gelöscht, nur die Anzeige ändert sich.')) : null,
+        h('div', { class: 'stat' }, h('div', { class: 'label' }, t('common.total')), h('div', { class: 'v' }, fmtBytes(c.bytes))),
+        h('div', { class: 'stat' }, h('div', { class: 'label' }, t('common.entries')), h('div', { class: 'v' }, fmtNum(c.count)))),
+      c.warnings ? h('div', { class: 'notice warn' }, icon('warn'), h('div', null, tn('cartDlg.warnings', c.warnings))) : null,
+      isDemo ? h('div', { class: 'notice info' }, icon('info'), h('div', null, t('cartDlg.demo'))) : null,
       h('div', { style: { overflow: 'auto', maxHeight: '42vh' } }, h('table', { class: 'tbl' }, list)),
-      c.count > c.rows.length ? h('div', { class: 'muted' }, `Angezeigt werden die ${fmtNum(c.rows.length)} größten. Beim Aufräumen zählen alle ${fmtNum(c.count)}.`) : null,
+      c.count > c.rows.length ? h('div', { class: 'muted' }, t('cartDlg.shown', { shown: fmtNum(c.rows.length), total: fmtNum(c.count) })) : null,
     ],
     actions: [
-      { label: 'Liste leeren', kind: 'ghost', run: () => api('cart/clear', {}).then(() => poll()).catch(fail) },
-      h('a', { class: 'btn ghost', href: '#', onclick: (e) => { e.preventDefault(); location.href = '/api/export?' + qs({ what: 'cart', t: authToken() }); } }, icon('export'), 'CSV'),
+      { label: t('cartDlg.clear'), kind: 'ghost', run: () => api('cart/clear', {}).then(() => poll()).catch(fail) },
+      h('a', { class: 'btn ghost', href: '#', onclick: (e) => { e.preventDefault(); downloadCsv({ what: 'cart' }); } }, icon('export'), 'CSV'),
       h('span', { class: 'grow' }),
-      { label: 'Endgültig löschen…', kind: 'ghost', icon: 'x', run: () => { confirmPermanent(c); return false; } },
-      { label: 'Verschieben…', icon: 'move', run: () => { App.pickFolder('Wohin verschieben?', (dest) => startCleanup({ mode: 'move', dest })); return false; } },
-      { label: 'In den Papierkorb', kind: 'primary', icon: 'trash', disabled: isNet, run: () => { startCleanup({ mode: 'recycle' }); return false; } },
+      { label: t('cartDlg.permanent'), kind: 'ghost', icon: 'x', run: () => { confirmPermanent(c); return false; } },
+      { label: t('cartDlg.move'), icon: 'move', run: () => { App.pickFolder(t('cartDlg.moveWhere'), (dest) => startCleanup({ mode: 'move', dest })); return false; } },
+      { label: t('cartDlg.recycle'), kind: 'primary', icon: 'trash', disabled: isNet, run: () => { startCleanup({ mode: 'recycle' }); return false; } },
     ],
   });
-  if (isNet) d.bodyEl.prepend(h('div', { class: 'notice warn' }, icon('warn'), h('div', null, 'Netzlaufwerke haben keinen Papierkorb. Hier kannst du nur verschieben oder endgültig löschen.')));
+  if (isNet) d.bodyEl.prepend(h('div', { class: 'notice warn' }, icon('warn'), h('div', null, t('cartDlg.net'))));
 }
 
 function confirmPermanent(c) {
-  const input = h('input', { class: 'field', placeholder: 'LÖSCHEN', 'aria-label': 'Bestätigungswort', style: { width: '100%' }, autocomplete: 'off', oninput: () => { document.getElementById('perm-go').disabled = input.value !== 'LÖSCHEN'; } });
+  const word = t('common.wordDelete');
+  const input = h('input', { class: 'field', placeholder: word, 'aria-label': t('common.confirmWordLabel'), style: { width: '100%' }, autocomplete: 'off', oninput: () => { document.getElementById('perm-go').disabled = input.value !== word; } });
   dialog({
-    title: 'Endgültig löschen?',
+    title: t('perm.title'),
     body: [
-      h('div', { class: 'notice block' }, icon('warn'), h('div', null, `${fmtNum(c.count)} ${c.count === 1 ? 'Eintrag' : 'Einträge'} mit ${fmtBytes(c.bytes)} ${c.count === 1 ? 'wird' : 'werden'} sofort entfernt und ${c.count === 1 ? 'landet' : 'landen'} nicht im Papierkorb. Das lässt sich nicht rückgängig machen.`)),
-      h('label', null, 'Tippe zur Bestätigung ', h('b', null, 'LÖSCHEN'), ':'),
+      h('div', { class: 'notice block' }, icon('warn'), h('div', null, tn('perm.text', c.count, { size: fmtBytes(c.bytes) }))),
+      h('label', null, tp('common.confirmType', { word: h('b', null, word) })),
       input,
     ],
     actions: [
-      { label: 'Abbrechen' },
-      { label: 'Endgültig löschen', kind: 'danger', icon: 'trash', id: 'perm-go', disabled: true, run: () => { startCleanup({ mode: 'permanent', confirm: input.value }); return false; } },
+      { label: t('common.cancel') },
+      { label: t('perm.go'), kind: 'danger', icon: 'trash', id: 'perm-go', disabled: true, run: () => { startCleanup({ mode: 'permanent', confirm: input.value }); return false; } },
     ],
   });
 }
@@ -488,10 +507,10 @@ async function startCleanup(body) {
   document.querySelectorAll('.scrim').forEach((s) => s.remove());
   try { await api('cleanup/start', body); } catch (e) { fail(e); return; }
   const fill = h('i', { style: { width: '0%' } });
-  const txt = h('div', { class: 'muted num' }, 'Wird vorbereitet…');
+  const txt = h('div', { class: 'muted num' }, t('run.preparing'));
   cleanupDlg = { dlg: dialog({
-    title: body.mode === 'move' ? 'Wird verschoben…' : 'Wird aufgeräumt…',
-    body: [h('div', { class: 'pbar' }, fill), txt, body.mode === 'recycle' && App.isWindows() ? h('p', { class: 'muted' }, 'Falls etwas nicht in den Papierkorb passt, fragt Windows nach. Das Fenster kann hinter Storage Map liegen.') : null],
+    title: body.mode === 'move' ? t('run.moving') : t('run.cleaning'),
+    body: [h('div', { class: 'pbar' }, fill), txt, body.mode === 'recycle' && App.isWindows() ? h('p', { class: 'muted' }, t('run.binHint')) : null],
     actions: [],
   }), fill, txt, mode: body.mode };
   poll();
@@ -501,27 +520,27 @@ function handleCleanup(st) {
   const c = st.cleanup;
   if (cleanupDlg && c.running) {
     cleanupDlg.fill.style.width = `${(c.done / Math.max(1, c.total)) * 100}%`;
-    cleanupDlg.txt.textContent = `${fmtNum(c.done)} von ${fmtNum(c.total)}`;
+    cleanupDlg.txt.textContent = t('run.progress', { done: fmtNum(c.done), total: fmtNum(c.total) });
   }
   if (!c.running && c.last) {
     if (cleanupDlg) { cleanupDlg.dlg.close(); cleanupDlg = null; }
     const last = c.last;
     api('cleanup/ack', {}).catch(() => {});
     const mode = last.mode;
-    const verb = mode === 'recycle' ? 'in den Papierkorb verschoben' : mode === 'move' ? 'verschoben' : 'gelöscht';
+    const verb = mode === 'recycle' ? t('result.recycled') : mode === 'move' ? t('result.moved') : t('result.deleted');
     dialog({
-      title: last.failed ? 'Fast alles erledigt' : 'Erledigt',
+      title: last.failed ? t('result.almost') : t('result.done'),
       wide: last.failed > 0,
       body: [
         h('div', { class: 'stats' },
-          h('div', { class: 'stat' }, h('div', { class: 'label' }, verb), h('div', { class: 'v' }, fmtBytes(last.freed)), h('div', { class: 's' }, `${fmtNum(last.ok)} ${last.ok === 1 ? 'Eintrag' : 'Einträge'}`)),
-          last.failed ? h('div', { class: 'stat' }, h('div', { class: 'label' }, 'Nicht geschafft'), h('div', { class: 'v' }, fmtNum(last.failed))) : null),
-        mode === 'recycle' ? h('div', { class: 'notice info' }, icon('info'), h('div', null, 'Der Platz wird erst frei, wenn du den Papierkorb leerst. Bis dahin kannst du alles wiederherstellen.')) : null,
+          h('div', { class: 'stat' }, h('div', { class: 'label' }, verb), h('div', { class: 'v' }, fmtBytes(last.freed)), h('div', { class: 's' }, tn('unit.entries', last.ok))),
+          last.failed ? h('div', { class: 'stat' }, h('div', { class: 'label' }, t('result.failed')), h('div', { class: 'v' }, fmtNum(last.failed))) : null),
+        mode === 'recycle' ? h('div', { class: 'notice info' }, icon('info'), h('div', null, t('result.binInfo'))) : null,
         last.failed ? h('div', { style: { maxHeight: '40vh', overflow: 'auto' } }, h('table', { class: 'tbl' }, h('tbody', null, last.failures.map((f) => h('tr', null, h('td', null, h('div', { class: 'pt mono ellipsis', title: f.path }, f.path), h('div', { class: 'muted' }, f.reason))))))) : null,
       ],
       actions: [
-        mode === 'recycle' && last.ok ? { label: 'Papierkorb leeren…', icon: 'trash', run: () => { App.emptyBin(last.freed); return false; } } : null,
-        { label: 'Fertig', kind: 'primary' },
+        mode === 'recycle' && last.ok ? { label: t('bin.emptyMenu'), icon: 'trash', run: () => { App.emptyBin(last.freed); return false; } } : null,
+        { label: t('result.finish'), kind: 'primary' },
       ].filter(Boolean),
     });
   }
@@ -543,7 +562,7 @@ document.addEventListener('keydown', (e) => {
   await initToken();
   await poll();
   if (!S.status) {
-    mainEl.append(h('div', { class: 'panel empty' }, 'Keine Verbindung zu Storage Map. Bitte das Programm neu starten.'));
+    mainEl.append(h('div', { class: 'panel empty' }, t('app.noConnection')));
   }
   loop();
 })();

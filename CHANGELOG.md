@@ -18,6 +18,7 @@ First public version.
 - Cleanup list with recycle bin, moving and permanent deletion, protected by fixed rules and a check for changes right before removal.
 - MCP server (`--mcp`) with access levels off, read, write and delete, a separate permission for starting scans and for permanent deletion, and a log of all calls.
 - Demo and sandbox modes for trying the program without touching real drives.
+- English and German interface. It follows the browser language, and a switch in the header changes it.
 
 [Unreleased]: https://github.com/codeflag/storage-map/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/codeflag/storage-map/releases/tag/v0.1.0

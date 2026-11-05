@@ -269,12 +269,12 @@ impl Index {
         let mut magic = [0u8; 8];
         dec.read_exact(&mut magic)?;
         if &magic != MAGIC {
-            return Err(bad("Altes oder fremdes Dateiformat"));
+            return Err(bad("Old or unknown file format"));
         }
         let mut b4 = [0u8; 4];
         dec.read_exact(&mut b4)?;
         if u32::from_le_bytes(b4) as usize != std::mem::size_of::<Node>() {
-            return Err(bad("Knotengroesse passt nicht"));
+            return Err(bad("Node size does not match"));
         }
         let mut b8 = [0u8; 8];
         dec.read_exact(&mut b8)?;
@@ -295,7 +295,7 @@ impl Index {
             if n.name_off as usize + n.name_len as usize > names.len()
                 || (n.is_dir() && (n.first_child as u64 + n.child_count as u64) > n_nodes as u64)
             {
-                return Err(bad("Beschaedigte Index-Datei"));
+                return Err(bad("Damaged index file"));
             }
         }
         Ok(Index { nodes, names, meta })

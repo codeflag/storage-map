@@ -143,104 +143,104 @@ fn scaled(n: u64, scale: u64) -> u64 {
 }
 
 const APPS: &[&str] = &[
-    "Bildstudio",
+    "ImageBench",
     "TextPro",
-    "Tonwerk",
-    "Klickbuero",
-    "Rechenmeister",
-    "Schnittplatz",
-    "Mailhafen",
-    "Zeichenbrett",
-    "Datenfuchs",
-    "Notizwerk",
-    "Netzwerkzeug",
-    "Paketmanager",
+    "ToneWorks",
+    "ClickOffice",
+    "CalcMaster",
+    "CutBench",
+    "MailHarbor",
+    "DrawingBoard",
+    "DataFox",
+    "NoteWorks",
+    "NetTool",
+    "PackageBox",
 ];
 const GAMES: &[(&str, u64)] = &[
-    ("Weltraum-Saga", 70),
-    ("Rennfieber 7", 45),
-    ("Burgenbauer Online", 28),
-    ("Pixelabenteuer", 18),
-    ("Tiefsee-Expedition", 12),
-    ("Schach Deluxe", 9),
+    ("Space Saga", 70),
+    ("Race Fever 7", 45),
+    ("Castle Builder Online", 28),
+    ("Pixel Adventure", 18),
+    ("Deep Sea Expedition", 12),
+    ("Chess Deluxe", 9),
 ];
 const PROJECTS: &[&str] = &[
     "webshop",
-    "foto-app",
-    "rechnungstool",
-    "spiel-prototyp",
-    "ki-training",
-    "wetterdienst",
+    "photo-app",
+    "invoice-tool",
+    "game-prototype",
+    "ai-training",
+    "weather-service",
     "blog-engine",
     "chat-server",
-    "kalender",
-    "bastelkiste",
-    "uni-projekt",
+    "calendar",
+    "tinkering",
+    "uni-project",
     "homepage",
 ];
 
 /// Was in jedem Profil liegt: Fotos, Filme, Dokumente, Downloads und Entwicklungsprojekte.
 fn user_files(u: &mut T, r: &mut Rng, s: u64) {
-    u.at(".cache\\huggingface\\hub\\models--demo--bildmodell\\blobs").add(T::f("modell-a.safetensors", 9 * GB + 500 * MB, 200)).add(T::f(
-        "modell-b.safetensors",
+    u.at(".cache\\huggingface\\hub\\models--demo--image-model\\blobs").add(T::f("model-a.safetensors", 9 * GB + 500 * MB, 200)).add(T::f(
+        "model-b.safetensors",
         9 * GB + 500 * MB,
         200,
     ));
-    u.at(".cache\\huggingface\\hub\\models--demo--sprachmodell\\blobs").add(T::f("sprache.gguf", 13 * GB, 90));
-    u.at("Documents\\VirtualBox\\Testsystem").add(T::f("testsystem.vdi", 24 * GB, 500));
+    u.at(".cache\\huggingface\\hub\\models--demo--language-model\\blobs").add(T::f("language.gguf", 13 * GB, 90));
+    u.at("Documents\\VirtualBox\\Testbox").add(T::f("testbox.vdi", 24 * GB, 500));
 
     for y in 2017..=2026u32 {
         let age = (2026 - y) * 365 + 20;
         u.at(&format!("Pictures\\{y}")).mass(r, "IMG_", "jpg", scaled(2000, s), 3 * GB + (y as u64 - 2017) * 200 * MB, (age, age + 300));
         u.at(&format!("Pictures\\{y}\\RAW")).mass(r, "RAW_", "dng", 150, GB, (age, age + 300));
     }
-    u.at("Videos\\Urlaub Italien").mass(r, "clip", "mp4", 40, 22 * GB, (900, 1000));
-    u.at("Videos\\Hochzeit").mass(r, "clip", "mov", 18, 18 * GB, (1600, 1700));
-    u.at("Videos\\Bildschirmaufnahmen").mass(r, "aufnahme", "mkv", 60, 20 * GB, (2, 300));
-    u.at("Music\\Sammlung").mass(r, "titel", "flac", scaled(2500, s), 18 * GB, (800, 3000));
-    u.at("Documents\\Rechnungen").mass(r, "rechnung", "pdf", scaled(2000, s), 4 * GB, (30, 3000));
-    u.at("Documents\\Projekte").mass(r, "bericht", "docx", 1500, 6 * GB, (30, 2500));
-    u.at("Documents\\Tabellen").mass(r, "tabelle", "xlsx", 800, 3 * GB, (30, 2500));
+    u.at("Videos\\Holiday Italy").mass(r, "clip", "mp4", 40, 22 * GB, (900, 1000));
+    u.at("Videos\\Wedding").mass(r, "clip", "mov", 18, 18 * GB, (1600, 1700));
+    u.at("Videos\\Screen recordings").mass(r, "recording", "mkv", 60, 20 * GB, (2, 300));
+    u.at("Music\\Collection").mass(r, "track", "flac", scaled(2500, s), 18 * GB, (800, 3000));
+    u.at("Documents\\Invoices").mass(r, "invoice", "pdf", scaled(2000, s), 4 * GB, (30, 3000));
+    u.at("Documents\\Projects").mass(r, "report", "docx", 1500, 6 * GB, (30, 2500));
+    u.at("Documents\\Sheets").mass(r, "sheet", "xlsx", 800, 3 * GB, (30, 2500));
     u.at("Documents\\Scans").mass(r, "scan", "pdf", 700, 17 * GB, (500, 3500));
 
     let dl = u.at("Downloads");
-    dl.add(T::f("Installer-Bildstudio-2021.exe", 2 * GB, 1500));
-    dl.add(T::f("Betriebssystem-Abbild.iso", 6 * GB, 800));
-    dl.add(T::f("Treiberpaket-alt.zip", 900 * MB, 700));
-    dl.add(T::f("Setup-Tonwerk.msi", 400 * MB, 400));
-    dl.add(T::f("Fotos-Sommer.zip", 7 * GB + 123_456, 200));
-    dl.add(T::f("Film-Kopie.mkv", 5 * GB + 777_001, 90));
-    dl.add(T::f("aktuell.pdf", 3 * MB, 1));
-    dl.mass(r, "datei", "pdf", 300, 2 * GB, (5, 900));
-    dl.add(T::f("abgebrochen.iso.crdownload", 3 * GB, 60));
-    u.at("Videos\\Filme").add(T::f("Film-Original.mkv", 5 * GB + 777_001, 300));
-    u.at("Pictures\\Sicherung").add(T::f("Fotos-Sommer-Kopie.zip", 7 * GB + 123_456, 100));
-    u.at("Leerer Ordner");
-    u.at("Noch ein leerer Ordner");
+    dl.add(T::f("Installer-ImageBench-2021.exe", 2 * GB, 1500));
+    dl.add(T::f("Operating-system-image.iso", 6 * GB, 800));
+    dl.add(T::f("Driver-pack-old.zip", 900 * MB, 700));
+    dl.add(T::f("Setup-ToneWorks.msi", 400 * MB, 400));
+    dl.add(T::f("Photos-summer.zip", 7 * GB + 123_456, 200));
+    dl.add(T::f("Movie-copy.mkv", 5 * GB + 777_001, 90));
+    dl.add(T::f("current.pdf", 3 * MB, 1));
+    dl.mass(r, "file", "pdf", 300, 2 * GB, (5, 900));
+    dl.add(T::f("aborted.iso.crdownload", 3 * GB, 60));
+    u.at("Videos\\Movies").add(T::f("Movie-original.mkv", 5 * GB + 777_001, 300));
+    u.at("Pictures\\Backup").add(T::f("Photos-summer-copy.zip", 7 * GB + 123_456, 100));
+    u.at("Empty folder");
+    u.at("Another empty folder");
     for (i, p) in PROJECTS.iter().enumerate() {
-        let d = u.at(&format!("Entwicklung\\{p}"));
+        let d = u.at(&format!("Development\\{p}"));
         let idle = 5 + (i as u32) * 90;
         d.add(T::f("README.md", 4 * KB, idle));
-        d.at("src").mass(r, "modul", "ts", 200, 40 * MB, (idle, idle + 90));
+        d.at("src").mass(r, "module", "ts", 200, 40 * MB, (idle, idle + 90));
         if i % 2 == 0 {
             d.add(T::f("package.json", 2 * KB, idle));
             for pkg in 0..30u64 {
-                let n = d.at(&format!("node_modules\\paket-{pkg:03}\\lib"));
-                n.mass(r, "datei", "js", scaled(100, s), 20 * MB, (idle, idle + 200));
+                let n = d.at(&format!("node_modules\\package-{pkg:03}\\lib"));
+                n.mass(r, "file", "js", scaled(100, s), 20 * MB, (idle, idle + 200));
             }
             d.at(".next\\cache").mass(r, "build", "pack", 80, 800 * MB, (idle, idle + 5));
         } else {
             d.add(T::f("Cargo.toml", 2 * KB, idle));
             d.at("target\\debug\\deps").mass(r, "lib", "rlib", 800, (2 + i as u64) * GB, (idle, idle + 5));
-            d.at("__pycache__").mass(r, "modul", "pyc", 60, 50 * MB, (idle, idle + 5));
+            d.at("__pycache__").mass(r, "module", "pyc", 60, 50 * MB, (idle, idle + 5));
         }
         if i % 3 == 0 {
             let v = d.at("venv");
             v.add(T::f("pyvenv.cfg", 300, idle));
-            v.at("Lib\\site-packages").mass(r, "paket", "py", 2000, 2 * GB, (idle, idle + 5));
+            v.at("Lib\\site-packages").mass(r, "package", "py", 2000, 2 * GB, (idle, idle + 5));
         }
     }
-    u.at("Entwicklung\\ki-training\\ausgaben").mass(r, "lauf", "pt", 30, 18 * GB, (3, 20));
+    u.at("Development\\ai-training\\output").mass(r, "run", "pt", 30, 18 * GB, (3, 20));
 }
 
 fn system_tree(r: &mut Rng, s: u64) -> T {
@@ -260,15 +260,15 @@ fn system_tree(r: &mut Rng, s: u64) -> T {
             let mut b = T::f(&name, size, age);
             b.file_id = id;
             w.at("System32").add(a);
-            w.at(&format!("WinSxS\\amd64_paket_{:04}", i / 40)).add(b);
+            w.at(&format!("WinSxS\\amd64_package_{:04}", i / 40)).add(b);
         }
-        w.at("System32").mass(r, "treiber", "sys", scaled(900, s), 3 * GB, (60, 1400));
-        w.at("Fonts").mass(r, "schrift", "ttf", 400, 600 * MB, (300, 2000));
+        w.at("System32").mass(r, "driver", "sys", scaled(900, s), 3 * GB, (60, 1400));
+        w.at("Fonts").mass(r, "font", "ttf", 400, 600 * MB, (300, 2000));
         w.at("Installer").mass(r, "setup", "msi", 300, 3 * GB + 500 * MB, (60, 1500));
         w.at("Temp").mass(r, "win", "tmp", 200, 900 * MB, (2, 200));
         w.at("Logs\\CBS").mass(r, "cbs", "log", 80, 700 * MB, (2, 500));
         w.at("SoftwareDistribution\\Download").mass(r, "update", "cab", 60, 4 * GB, (5, 200));
-        w.at("Minidump").mass(r, "absturz", "dmp", 12, 90 * MB, (20, 700));
+        w.at("Minidump").mass(r, "crash", "dmp", 12, 90 * MB, (20, 700));
         w.add(T::f("MEMORY.DMP", 2 * GB + 424_242, 160));
         w.at("assembly").mass(r, "net", "dll", scaled(2000, s), 8 * GB, (100, 1500));
     }
@@ -279,16 +279,16 @@ fn system_tree(r: &mut Rng, s: u64) -> T {
         let d = root.at(&format!("Program Files\\{app}"));
         d.mass(r, "modul", "dll", scaled(1200, s), total * 7 / 10, (40, 900));
         d.at("bin").mass(r, "tool", "exe", 30, total / 10, (40, 900));
-        d.at("resources").mass(r, "daten", "pak", 200, total / 5, (40, 900));
+        d.at("resources").mass(r, "data", "pak", 200, total / 5, (40, 900));
     }
     for (game, gb) in GAMES {
         let d = root.at(&format!("Program Files (x86)\\Steam\\steamapps\\common\\{game}"));
-        d.mass(r, "inhalt", "pak", 40, gb * GB * 9 / 10, (20, 1200));
-        d.at("bin").mass(r, "spiel", "dll", 300, gb * GB / 10, (20, 1200));
+        d.mass(r, "content", "pak", 40, gb * GB * 9 / 10, (20, 1200));
+        d.at("bin").mass(r, "game", "dll", 300, gb * GB / 10, (20, 1200));
     }
     root.at("Program Files (x86)\\Steam\\steamapps\\downloading").mass(r, "chunk", "part", 8, 700 * MB, (15, 40));
-    root.at("ProgramData\\Paketspeicher").mass(r, "pkg", "msi", 200, 7 * GB, (30, 900));
-    root.at("ProgramData\\Microsoft\\Windows\\WER\\ReportArchive").mass(r, "bericht", "wer", 200, 300 * MB, (10, 900));
+    root.at("ProgramData\\PackageStore").mass(r, "pkg", "msi", 200, 7 * GB, (30, 900));
+    root.at("ProgramData\\Microsoft\\Windows\\WER\\ReportArchive").mass(r, "report", "wer", 200, 300 * MB, (10, 900));
 
     // Benutzerprofil
     {
@@ -297,7 +297,7 @@ fn system_tree(r: &mut Rng, s: u64) -> T {
         l.at("Docker\\wsl\\disk").add(T::f("docker_data.vhdx", 95 * GB, 2));
         l.at("wsl\\{demo-distro}").add(T::f("ext4.vhdx", 28 * GB, 1));
         l.at("Temp").mass(r, "tmp", "tmp", scaled(6000, s), 30 * GB, (0, 300));
-        l.at("Temp\\installer-reste").mass(r, "rest", "dat", 300, 5 * GB, (30, 300));
+        l.at("Temp\\installer-leftovers").mass(r, "rest", "dat", 300, 5 * GB, (30, 300));
         l.at("Google\\Chrome\\User Data\\Default\\Cache\\Cache_Data").mass(r, "f_", "", scaled(8000, s), 3 * GB, (0, 30));
         l.at("Google\\Chrome\\User Data\\Default\\Code Cache\\js").mass(r, "c_", "", 2000, 600 * MB, (0, 30));
         l.at("Microsoft\\Edge\\User Data\\Default\\Cache\\Cache_Data").mass(r, "f_", "", 3000, 1200 * MB, (0, 30));
@@ -306,15 +306,15 @@ fn system_tree(r: &mut Rng, s: u64) -> T {
         l.at("pip\\Cache").mass(r, "wheel", "whl", 900, 5 * GB, (1, 400));
         l.at("CrashDumps").mass(r, "app", "dmp", 15, 3 * GB, (3, 300));
         l.at("Microsoft\\Windows\\Explorer").mass(r, "thumbcache_", "db", 8, 900 * MB, (0, 30));
-        l.at("Bildstudio\\Cache").mass(r, "bild", "cache", 3000, 22 * GB, (1, 200));
-        l.at("Schnittplatz\\Cache").mass(r, "vorschau", "cache", 800, 38 * GB, (1, 200));
-        l.at("Datenfuchs\\Daten").mass(r, "db", "sqlite", 30, 6 * GB, (1, 200));
-        u.at("AppData\\Roaming\\Mailhafen\\Profile").add(T::f("archiv.pst", 11 * GB, 3));
+        l.at("ImageBench\\Cache").mass(r, "image", "cache", 3000, 22 * GB, (1, 200));
+        l.at("CutBench\\Cache").mass(r, "preview", "cache", 800, 38 * GB, (1, 200));
+        l.at("DataFox\\Data").mass(r, "db", "sqlite", 30, 6 * GB, (1, 200));
+        u.at("AppData\\Roaming\\MailHarbor\\Profile").add(T::f("archive.pst", 11 * GB, 3));
 
         user_files(u, r, s);
-        let od = u.at("OneDrive\\Geteilt");
+        let od = u.at("OneDrive\\Shared");
         for i in 0..60 {
-            let mut f = T::f(&format!("nur-online-{i:03}.mp4"), 900 * MB, 300);
+            let mut f = T::f(&format!("online-only-{i:03}.mp4"), 900 * MB, 300);
             f.flags = F_CLOUD;
             od.add(f);
         }
@@ -351,15 +351,15 @@ fn linux_tree(r: &mut Rng, s: u64) -> T {
             let mut b = T::f(&name, size, age);
             b.file_id = id;
             lib.add(a);
-            lib.at(&format!("debug/paket_{:04}", i / 40)).add(b);
+            lib.at(&format!("debug/package_{:04}", i / 40)).add(b);
         }
     }
-    root.at("usr/share").mass(r, "daten", "dat", scaled(2000, s), 6 * GB, (30, 1500));
+    root.at("usr/share").mass(r, "data", "dat", scaled(2000, s), 6 * GB, (30, 1500));
     root.at("usr/bin").mass(r, "tool", "", 800, 900 * MB, (30, 900));
-    root.at("opt/schnittplatz").mass(r, "modul", "so", 600, 8 * GB, (40, 900));
-    root.at("var/cache/apt/archives").mass(r, "paket", "deb", 300, 4 * GB, (5, 200));
-    root.at("var/lib/docker/overlay2").mass(r, "schicht", "tar", 200, 42 * GB, (5, 400));
-    root.at("var/lib/snapd/snaps").mass(r, "paket", "snap", 30, 7 * GB, (5, 300));
+    root.at("opt/cutbench").mass(r, "module", "so", 600, 8 * GB, (40, 900));
+    root.at("var/cache/apt/archives").mass(r, "package", "deb", 300, 4 * GB, (5, 200));
+    root.at("var/lib/docker/overlay2").mass(r, "layer", "tar", 200, 42 * GB, (5, 400));
+    root.at("var/lib/snapd/snaps").mass(r, "package", "snap", 30, 7 * GB, (5, 300));
     root.at("var/lib/systemd/coredump").mass(r, "core", "zst", 12, 2 * GB, (5, 200));
     root.at("var/log/journal/demo").mass(r, "system", "journal", 40, 4 * GB, (1, 200));
     root.at("var/log").mass(r, "syslog", "gz", 40, 300 * MB, (10, 300));
@@ -374,18 +374,18 @@ fn linux_tree(r: &mut Rng, s: u64) -> T {
         u.at(".cache/mozilla/firefox/demo.default/cache2/entries").mass(r, "e", "", 3000, 1200 * MB, (0, 30));
         u.at(".cache/pip/http").mass(r, "wheel", "whl", 900, 5 * GB, (1, 400));
         u.at(".cache/mesa_shader_cache").mass(r, "shader", "bin", 800, 3 * GB, (1, 120));
-        u.at(".cache/bildstudio").mass(r, "bild", "cache", 3000, 22 * GB, (1, 200));
+        u.at(".cache/imagebench").mass(r, "image", "cache", 3000, 22 * GB, (1, 200));
         u.at(".npm/_cacache").mass(r, "index", "tgz", scaled(4000, s), 6 * GB, (1, 400));
-        u.at(".local/share/Trash/info").add(T::f("alt-00001.mp4.trashinfo", 200, 20));
-        u.at(".local/share/Trash/files").mass(r, "alt-", "mp4", 30, 8 * GB, (3, 60));
-        u.at(".local/share/containers/storage").mass(r, "schicht", "tar", 90, 60 * GB, (2, 90));
-        u.at(".config/mailhafen").add(T::f("archiv.mbox", 11 * GB, 3));
+        u.at(".local/share/Trash/info").add(T::f("old-00001.mp4.trashinfo", 200, 20));
+        u.at(".local/share/Trash/files").mass(r, "old-", "mp4", 30, 8 * GB, (3, 60));
+        u.at(".local/share/containers/storage").mass(r, "layer", "tar", 90, 60 * GB, (2, 90));
+        u.at(".config/mailharbor").add(T::f("archive.mbox", 11 * GB, 3));
         for (game, gb) in GAMES {
             let d = u.at(&format!(".local/share/Steam/steamapps/common/{game}"));
-            d.mass(r, "inhalt", "pak", 40, gb * GB * 9 / 10, (20, 1200));
-            d.at("bin").mass(r, "spiel", "so", 300, gb * GB / 10, (20, 1200));
+            d.mass(r, "content", "pak", 40, gb * GB * 9 / 10, (20, 1200));
+            d.at("bin").mass(r, "game", "so", 300, gb * GB / 10, (20, 1200));
         }
-        u.at("Downloads").add(T::f("schnittplatz-1.2.deb", 900 * MB, 700)).add(T::f("werkzeug.AppImage", 400 * MB, 500));
+        u.at("Downloads").add(T::f("cutbench-1.2.deb", 900 * MB, 700)).add(T::f("tool.AppImage", 400 * MB, 500));
         user_files(u, r, s);
     }
     backups(&mut root);
@@ -397,11 +397,11 @@ fn linux_tree(r: &mut Rng, s: u64) -> T {
 fn backups(root: &mut T) {
     // Zwei Sicherungen mit gleichem Inhalt: doppelte Ordner
     let mut backup_seed = Rng::new(4242);
-    for name in ["Backup-2021", "Backup-2021 - Kopie"] {
+    for name in ["Backup-2021", "Backup-2021 - Copy"] {
         let mut s2 = Rng::new(backup_seed.0);
         let d = root.at(name);
-        d.at("Fotos").mass(&mut s2, "IMG_", "jpg", 600, 16 * GB, (1500, 1500));
-        d.at("Dokumente").mass(&mut s2, "akte", "pdf", 200, 8 * GB, (1500, 1500));
+        d.at("Photos").mass(&mut s2, "IMG_", "jpg", 600, 16 * GB, (1500, 1500));
+        d.at("Documents").mass(&mut s2, "file", "pdf", 200, 8 * GB, (1500, 1500));
     }
     let _ = backup_seed.next();
 }
@@ -412,31 +412,31 @@ fn archive_tree(r: &mut Rng, s: u64) -> T {
         let y = 2008 + (i % 17);
         let size = r.range(4, 45) * GB + r.range(0, GB);
         let age = (2026 - y as u32) * 365 + r.range(0, 300) as u32;
-        root.at(&format!("Filme\\{}", (b'A' + (i % 26) as u8) as char)).add(T::f(&format!("Spielfilm {i:04} ({y}).mkv"), size, age));
+        root.at(&format!("Movies\\{}", (b'A' + (i % 26) as u8) as char)).add(T::f(&format!("Feature film {i:04} ({y}).mkv"), size, age));
     }
     for show in 0..24u64 {
         for season in 1..=(1 + show % 6) {
             let age = 500 + (show as u32) * 120;
-            root.at(&format!("Serien\\Serie {show:02}\\Staffel {season}")).mass(r, "Folge", "mkv", 12, 18 * GB, (age, age + 20));
+            root.at(&format!("Series\\Series {show:02}\\Season {season}")).mass(r, "Episode", "mkv", 12, 18 * GB, (age, age + 20));
         }
     }
     for y in 2005..=2022u32 {
         let age = (2026 - y) * 365;
-        root.at(&format!("Fotos-Archiv\\{y}")).mass(r, "BILD", "cr2", scaled(1200, s), 40 * GB, (age, age + 200));
+        root.at(&format!("Photo archive\\{y}")).mass(r, "IMAGE", "cr2", scaled(1200, s), 40 * GB, (age, age + 200));
     }
-    root.at("Musik").mass(r, "Stueck", "flac", scaled(6000, s), 220 * GB, (1500, 5000));
-    root.at("VM-Images").mass(r, "maschine", "vdi", 14, 420 * GB, (1000, 2500));
-    root.at("ISO").mass(r, "abbild", "iso", 80, 260 * GB, (1500, 4000));
-    root.at("Backup-2019\\Systemabbild").mass(r, "teil", "wim", 20, 900 * GB, (2400, 2500));
-    root.at("Backup-2019\\Dokumente").mass(r, "akte", "docx", 4000, 40 * GB, (2400, 3500));
+    root.at("Music").mass(r, "Piece", "flac", scaled(6000, s), 220 * GB, (1500, 5000));
+    root.at("VM-Images").mass(r, "machine", "vdi", 14, 420 * GB, (1000, 2500));
+    root.at("ISO").mass(r, "image", "iso", 80, 260 * GB, (1500, 4000));
+    root.at("Backup-2019\\System image").mass(r, "part", "wim", 20, 900 * GB, (2400, 2500));
+    root.at("Backup-2019\\Documents").mass(r, "file", "docx", 4000, 40 * GB, (2400, 3500));
     root
 }
 
 fn nas_tree(r: &mut Rng, _s: u64) -> T {
     let mut root = T::d("");
-    root.at("Medien\\Filme").mass(r, "Film", "mkv", 90, 900 * GB, (300, 2500));
-    root.at("Medien\\Musik").mass(r, "Titel", "mp3", 4000, 60 * GB, (300, 3000));
-    root.at("Familie\\Fotos").mass(r, "IMG_", "heic", 5000, 180 * GB, (30, 2500));
+    root.at("Media\\Movies").mass(r, "Film", "mkv", 90, 900 * GB, (300, 2500));
+    root.at("Media\\Music").mass(r, "Track", "mp3", 4000, 60 * GB, (300, 3000));
+    root.at("Family\\Photos").mass(r, "IMG_", "heic", 5000, 180 * GB, (30, 2500));
     root
 }
 
@@ -454,10 +454,10 @@ fn all_drives() -> Vec<DriveInfo> {
     };
     vec![
         mk(r"C:\", "DEMO System", "fixed", "ssd", 1000 * GB, 21 * GB, "NTFS"),
-        mk(r"E:\", "DEMO Archiv", "fixed", "hdd", 7452 * GB, 3100 * GB, "NTFS"),
+        mk(r"E:\", "DEMO Archive", "fixed", "hdd", 7452 * GB, 3100 * GB, "NTFS"),
         mk(r"Z:\", "DEMO NAS", "network", "net", 2000 * GB, 800 * GB, "NTFS"),
         mk("/", "DEMO System", "fixed", "ssd", 1000 * GB, 21 * GB, "ext4"),
-        mk("/mnt/archiv", "DEMO Archiv", "fixed", "hdd", 7452 * GB, 3100 * GB, "ext4"),
+        mk("/mnt/archive", "DEMO Archive", "fixed", "hdd", 7452 * GB, 3100 * GB, "ext4"),
         mk("/mnt/nas", "DEMO NAS", "network", "net", 2000 * GB, 800 * GB, "nfs4"),
     ]
 }
@@ -471,14 +471,14 @@ pub fn drives() -> Vec<DriveInfo> {
 pub fn generate(root: &str, scale: u64) -> Index {
     let mut r = Rng::new(match root {
         r"C:\" => 11,
-        r"E:\" | "/mnt/archiv" => 22,
+        r"E:\" | "/mnt/archive" => 22,
         "/" => 44,
         _ => 33,
     });
     let tree = match root {
         r"C:\" => system_tree(&mut r, scale),
         "/" => linux_tree(&mut r, scale),
-        r"E:\" | "/mnt/archiv" => archive_tree(&mut r, scale),
+        r"E:\" | "/mnt/archive" => archive_tree(&mut r, scale),
         _ => nas_tree(&mut r, scale),
     };
     let mut ix = Index::default();
@@ -495,7 +495,7 @@ pub fn generate(root: &str, scale: u64) -> Index {
     match root {
         r"C:\" => {
             ix.meta.denied =
-                vec![Denied { path: r"C:\System Volume Information".into(), code: 5 }, Denied { path: r"C:\Users\Anderer Nutzer".into(), code: 5 }];
+                vec![Denied { path: r"C:\System Volume Information".into(), code: 5 }, Denied { path: r"C:\Users\Other user".into(), code: 5 }];
         }
         "/" => {
             ix.meta.denied = vec![Denied { path: "/root".into(), code: 13 }, Denied { path: "/var/lib/private".into(), code: 13 }];
@@ -545,9 +545,9 @@ pub fn seed(scale: u64) {
             // Baut einen Pfad im Profil, die Teile werden mit dem passenden Trenner verbunden.
             let at = |rel: &str| rel.split('|').fold(home.to_string(), |a, b| paths::join(&a, b));
             let (grow_a, grow_b) = if linux {
-                (".local|share|containers|storage", ".cache|bildstudio")
+                (".local|share|containers|storage", ".cache|imagebench")
             } else {
-                ("AppData|Local|Docker|wsl|disk", "AppData|Local|Schnittplatz|Cache")
+                ("AppData|Local|Docker|wsl|disk", "AppData|Local|CutBench|Cache")
             };
             let base = history::entry_of(&ix);
             let rows = history::dir_rows(&ix);
@@ -555,7 +555,7 @@ pub fn seed(scale: u64) {
                 let mut map: HashMap<String, (u64, u32)> = rows.iter().map(|(p, a, f)| (p.clone(), (*a, *f))).collect();
                 let w = weeks as i64;
                 let g = GB as i64;
-                let ki = at("Entwicklung|ki-training|ausgaben");
+                let ki = at("Development|ai-training|output");
                 let alt = map.get(&ki).map(|x| x.0 as i64).unwrap_or(0);
                 perturb(&mut map, &ki, -alt);
                 map.remove(&ki);
@@ -563,7 +563,7 @@ pub fn seed(scale: u64) {
                 perturb(&mut map, &at("Downloads"), -g * w);
                 perturb(&mut map, &at(grow_b), -2 * g * w);
                 if weeks >= 2 {
-                    perturb(&mut map, &at("Videos|Altes Projekt"), 14 * g);
+                    perturb(&mut map, &at("Videos|Old project"), 14 * g);
                 }
                 let snap: Vec<(String, u64, u32)> = map.into_iter().map(|(p, (a, f))| (p, a, f)).collect();
                 let ts = ix.meta.scanned_at - weeks * 7 * 86_400;
@@ -611,8 +611,8 @@ pub fn health(root: &str) -> Value {
         r"C:\" | "/" => {
             json!({"model": "DEMO NVMe 1 TB", "media": "SSD", "bus": "NVMe", "health": "Healthy", "size": 1000u64 * GB, "temp": 41, "wear": 7, "hours": 8120})
         }
-        r"E:\" | "/mnt/archiv" => {
-            json!({"model": "DEMO Archivplatte 8 TB", "media": "HDD", "bus": "SATA", "health": "Warning", "size": 7452u64 * GB, "temp": 47, "hours": 41200})
+        r"E:\" | "/mnt/archive" => {
+            json!({"model": "DEMO Archive Disk 8 TB", "media": "HDD", "bus": "SATA", "health": "Warning", "size": 7452u64 * GB, "temp": 47, "hours": 41200})
         }
         _ => json!({"unavailable": true}),
     }
@@ -747,7 +747,7 @@ mod tests {
             assert!(rep.results[junk::rule_by_id(id).unwrap()].alloc > 0, "Regel {id} kommt in der Demo nicht vor");
         }
         assert_eq!(rep.empty_dirs.len(), 2);
-        let s = analysis::summary(&ix, &rep, None, true);
+        let s = analysis::summary(&ix, &rep, None, true, crate::i18n::Lang::En);
         assert!(s["recs"].as_array().unwrap().len() > 5);
         assert!(ix.nodes.iter().any(|n| n.flags & F_HARDLINK != 0), "Hardlinks fehlen");
         let g = dup_groups(&ix, MB, false);

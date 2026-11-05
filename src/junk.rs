@@ -1,6 +1,7 @@
 //! Regelwerk fuer "unnoetiges Zeug": feste, nachvollziehbare Regeln mit Begruendung und Risikostufe.
 
 use crate::guard::{self, Guard};
+use crate::i18n::Text;
 use crate::index::*;
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -57,9 +58,9 @@ enum M {
 
 pub struct Rule {
     pub id: &'static str,
-    pub group: &'static str,
-    pub title: &'static str,
-    pub why: &'static str,
+    pub group: Text,
+    pub title: Text,
+    pub why: Text,
     pub risk: Risk,
     /// Inhalt statt Ordner entfernen: Der Ordner selbst bleibt fuer die Programme bestehen.
     contents: bool,
@@ -67,127 +68,141 @@ pub struct Rule {
     m: M,
 }
 
-const G_SYS: &str = "System";
-const G_APP: &str = "Browser & Programme";
-const G_DEV: &str = "Entwicklung";
-const G_REST: &str = "Reste & Altlasten";
-const G_BIG: &str = "Große Posten prüfen";
+const G_SYS: Group = ("System", "System");
+const G_APP: Group = ("Browser & programs", "Browser & Programme");
+const G_DEV: Group = ("Development", "Entwicklung");
+const G_REST: Group = ("Leftovers", "Reste & Altlasten");
+const G_BIG: Group = ("Large items to check", "Große Posten prüfen");
 
+type Group = (&'static str, &'static str);
+
+/// Reihenfolge der Texte: Titel Englisch, Titel Deutsch, Begruendung Englisch, Begruendung Deutsch.
 #[allow(clippy::too_many_arguments)]
-const fn r(id: &'static str, group: &'static str, title: &'static str, why: &'static str, risk: Risk, contents: bool, action: Action, m: M) -> Rule {
-    Rule { id, group, title, why, risk, contents, action, m }
+const fn r(
+    id: &'static str,
+    group: Group,
+    title_en: &'static str,
+    title_de: &'static str,
+    why_en: &'static str,
+    why_de: &'static str,
+    risk: Risk,
+    contents: bool,
+    action: Action,
+    m: M,
+) -> Rule {
+    Rule { id, group: Text::new(group.0, group.1), title: Text::new(title_en, title_de), why: Text::new(why_en, why_de), risk, contents, action, m }
 }
 
 use Action as A;
 use Risk::*;
 
 const RULES: &[Rule] = &[
-    r("recycle", G_SYS, "Papierkorb", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
+    r("recycle", G_SYS, "Recycle bin", "Papierkorb", "Files that were already deleted. They keep taking up space until the recycle bin is emptied.", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
         M::RootName(&["$recycle.bin"])),
-    r("trash", G_SYS, "Papierkorb", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
+    r("trash", G_SYS, "Recycle bin", "Papierkorb", "Files that were already deleted. They keep taking up space until the recycle bin is emptied.", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
         M::Suffix(&["/.local/share/trash"])),
-    r("trash-volume", G_SYS, "Papierkorb dieses Laufwerks", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
+    r("trash-volume", G_SYS, "Recycle bin of this drive", "Papierkorb dieses Laufwerks", "Files that were already deleted. They keep taking up space until the recycle bin is emptied.", "Bereits gelöschte Dateien. Sie belegen weiter Platz, bis der Papierkorb geleert wird.", Safe, false, A::EmptyRecycleBin,
         M::RootPrefix(&[".trash-", ".trash"])),
-    r("pkg-downloads", G_SYS, "Paket-Downloads", "Heruntergeladene Pakete von apt, dnf oder pacman. Die Paketverwaltung lädt sie bei Bedarf neu. Mehr Rechte nötig.", Safe, true, A::None,
+    r("pkg-downloads", G_SYS, "Package downloads", "Paket-Downloads", "Downloaded packages from apt, dnf or pacman. The package manager downloads them again when needed. Needs more rights.", "Heruntergeladene Pakete von apt, dnf oder pacman. Die Paketverwaltung lädt sie bei Bedarf neu. Mehr Rechte nötig.", Safe, true, A::None,
         M::Abs(&["/var/cache/apt/archives", "/var/cache/dnf", "/var/cache/pacman/pkg", "/var/cache/zypp/packages"])),
-    r("coredumps", G_SYS, "Absturzabbilder des Systems", "Protokolle vergangener Abstürze. Nur für die Fehlersuche nützlich. Mehr Rechte nötig.", Safe, true, A::None,
+    r("coredumps", G_SYS, "System crash dumps", "Absturzabbilder des Systems", "Records of past crashes. Only useful for troubleshooting. Needs more rights.", "Protokolle vergangener Abstürze. Nur für die Fehlersuche nützlich. Mehr Rechte nötig.", Safe, true, A::None,
         M::Abs(&["/var/lib/systemd/coredump", "/var/crash"])),
-    r("var-tmp", G_SYS, "Temporäre Dateien (System)", "Zwischendateien, die Neustarts überleben. Laufende Programme können sie noch brauchen. Mehr Rechte nötig.", Caution, true, A::None,
+    r("var-tmp", G_SYS, "Temporary files (system)", "Temporäre Dateien (System)", "Interim files that survive restarts. Running programs may still need them. Needs more rights.", "Zwischendateien, die Neustarts überleben. Laufende Programme können sie noch brauchen. Mehr Rechte nötig.", Caution, true, A::None,
         M::Abs(&["/var/tmp"])),
-    r("rotated-logs", G_SYS, "Gepackte Systemprotokolle", "Ältere, bereits gepackte Logdateien in /var/log. Mehr Rechte nötig.", Safe, false, A::None,
+    r("rotated-logs", G_SYS, "Compressed system logs", "Gepackte Systemprotokolle", "Older, already compressed log files in /var/log. Needs more rights.", "Ältere, bereits gepackte Logdateien in /var/log. Mehr Rechte nötig.", Safe, false, A::None,
         M::ExtIn(&["gz", "xz", "zst", "bz2", "old"], "/var/log", 7)),
-    r("thumbs-linux", G_SYS, "Vorschaubilder-Cache", "Der Dateimanager baut die Vorschaubilder bei Bedarf neu auf.", Safe, true, A::None,
+    r("thumbs-linux", G_SYS, "Thumbnail cache", "Vorschaubilder-Cache", "The file manager rebuilds thumbnails when needed.", "Der Dateimanager baut die Vorschaubilder bei Bedarf neu auf.", Safe, true, A::None,
         M::Suffix(&["/.cache/thumbnails"])),
-    r("user-temp", G_SYS, "Temporäre Dateien (Benutzer)", "Zwischendateien von Programmen. Dateien, die gerade benutzt werden, bleiben beim Aufräumen einfach liegen.", Safe, true, A::None,
+    r("user-temp", G_SYS, "Temporary files (user)", "Temporäre Dateien (Benutzer)", "Interim files from programs. Files currently in use simply stay in place during cleanup.", "Zwischendateien von Programmen. Dateien, die gerade benutzt werden, bleiben beim Aufräumen einfach liegen.", Safe, true, A::None,
         M::Suffix(&["/appdata/local/temp"])),
-    r("win-temp", G_SYS, "Temporäre Dateien (Windows)", "Zwischendateien des Systems. Zum Entfernen sind meist Adminrechte nötig.", Safe, true, A::None,
+    r("win-temp", G_SYS, "Temporary files (Windows)", "Temporäre Dateien (Windows)", "Interim files of the system. Removing them usually needs administrator rights.", "Zwischendateien des Systems. Zum Entfernen sind meist Adminrechte nötig.", Safe, true, A::None,
         M::Suffix(&["/windows/temp"])),
-    r("wu-cache", G_SYS, "Windows-Update-Downloads", "Bereits installierte Update-Pakete. Windows lädt bei Bedarf neu. Adminrechte nötig.", Safe, true, A::None,
+    r("wu-cache", G_SYS, "Windows Update downloads", "Windows-Update-Downloads", "Update packages that are already installed. Windows downloads them again when needed. Needs administrator rights.", "Bereits installierte Update-Pakete. Windows lädt bei Bedarf neu. Adminrechte nötig.", Safe, true, A::None,
         M::Suffix(&["/windows/softwaredistribution/download"])),
-    r("delivery", G_SYS, "Übermittlungsoptimierung", "Zwischenspeicher, mit dem Windows Updates an andere PCs verteilt. Adminrechte nötig.", Safe, true, A::None,
+    r("delivery", G_SYS, "Delivery Optimization", "Übermittlungsoptimierung", "Cache that Windows uses to share updates with other PCs. Needs administrator rights.", "Zwischenspeicher, mit dem Windows Updates an andere PCs verteilt. Adminrechte nötig.", Safe, true, A::None,
         M::Suffix(&["/microsoft/windows/deliveryoptimization/cache"])),
-    r("crash", G_SYS, "Absturzberichte & Speicherabbilder", "Protokolle vergangener Abstürze. Nur für die Fehlersuche nützlich.", Safe, true, A::None,
+    r("crash", G_SYS, "Crash reports & memory dumps", "Absturzberichte & Speicherabbilder", "Records of past crashes. Only useful for troubleshooting.", "Protokolle vergangener Abstürze. Nur für die Fehlersuche nützlich.", Safe, true, A::None,
         M::Suffix(&["/appdata/local/crashdumps", "/windows/minidump", "/windows/livekernelreports", "/microsoft/windows/wer"])),
-    r("memdump", G_SYS, "Speicherabbild des letzten Absturzes", "Kann so groß wie der Arbeitsspeicher sein. Nur für die Fehlersuche nützlich.", Safe, false, A::None,
+    r("memdump", G_SYS, "Memory dump of the last crash", "Speicherabbild des letzten Absturzes", "Can be as large as the RAM. Only useful for troubleshooting.", "Kann so groß wie der Arbeitsspeicher sein. Nur für die Fehlersuche nützlich.", Safe, false, A::None,
         M::File(&["memory.dmp"])),
-    r("win-logs", G_SYS, "Windows-Protokolle", "Installations- und Diagnoseprotokolle. Adminrechte nötig.", Safe, true, A::None,
+    r("win-logs", G_SYS, "Windows logs", "Windows-Protokolle", "Installation and diagnostic logs. Needs administrator rights.", "Installations- und Diagnoseprotokolle. Adminrechte nötig.", Safe, true, A::None,
         M::Suffix(&["/windows/logs"])),
-    r("thumbs", G_SYS, "Vorschaubilder-Cache", "Explorer baut die Vorschaubilder bei Bedarf neu auf.", Safe, false, A::None,
+    r("thumbs", G_SYS, "Thumbnail cache", "Vorschaubilder-Cache", "Explorer rebuilds thumbnails when needed.", "Explorer baut die Vorschaubilder bei Bedarf neu auf.", Safe, false, A::None,
         M::FilePrefixIn(&["thumbcache_", "iconcache_"], "/microsoft/windows/explorer")),
-    r("win-old", G_SYS, "Alte Windows-Installation", "Reste des vorherigen Windows. Entfernen Sie sie mit der Datenträgerbereinigung, nicht von Hand.", Caution, false, A::DiskCleanup,
+    r("win-old", G_SYS, "Old Windows installation", "Alte Windows-Installation", "Remains of the previous Windows. Remove them with Disk Cleanup, not by hand.", "Reste des vorherigen Windows. Entfernen Sie sie mit der Datenträgerbereinigung, nicht von Hand.", Caution, false, A::DiskCleanup,
         M::RootName(&["windows.old", "$windows.~bt", "$windows.~ws", "$getcurrent", "$sysreset"])),
 
-    r("browser", G_APP, "Browser-Cache", "Zwischengespeicherte Webseiten. Seiten laden beim nächsten Besuch einmal etwas langsamer. Logins bleiben erhalten.", Safe, true, A::None,
+    r("browser", G_APP, "Browser cache", "Browser-Cache", "Cached web pages. Pages load a little slower once on the next visit. Logins are kept.", "Zwischengespeicherte Webseiten. Seiten laden beim nächsten Besuch einmal etwas langsamer. Logins bleiben erhalten.", Safe, true, A::None,
         M::NameUnder(&["cache", "cache2", "code cache", "gpucache", "dawncache", "dawngraphitecache", "dawnwebgpucache", "grshadercache", "shadercache", "cachestorage"],
             &["/google/chrome/", "/microsoft/edge/", "/bravesoftware/", "/mozilla/firefox/", "/opera software/", "/vivaldi/", "/chromium/"])),
-    r("browser-linux", G_APP, "Browser-Cache", "Zwischengespeicherte Webseiten. Seiten laden beim nächsten Besuch einmal etwas langsamer. Logins bleiben erhalten.", Safe, true, A::None,
+    r("browser-linux", G_APP, "Browser cache", "Browser-Cache", "Cached web pages. Pages load a little slower once on the next visit. Logins are kept.", "Zwischengespeicherte Webseiten. Seiten laden beim nächsten Besuch einmal etwas langsamer. Logins bleiben erhalten.", Safe, true, A::None,
         M::Suffix(&["/.cache/google-chrome", "/.cache/chromium", "/.cache/mozilla", "/.cache/bravesoftware", "/.cache/microsoft-edge", "/.cache/vivaldi", "/.cache/opera"])),
-    r("flatpak-cache", G_APP, "Caches von Flatpak-Programmen", "Zwischenspeicher einzelner Programme. Werden neu erzeugt.", Safe, true, A::None,
+    r("flatpak-cache", G_APP, "Caches of Flatpak programs", "Caches von Flatpak-Programmen", "Caches of individual programs. They are recreated.", "Zwischenspeicher einzelner Programme. Werden neu erzeugt.", Safe, true, A::None,
         M::NameUnder(&["cache"], &["/.var/app/"])),
-    r("shader", G_APP, "Shader-Cache der Grafikkarte", "Wird vom Grafiktreiber neu erzeugt. Spiele ruckeln beim ersten Start evtl. kurz.", Safe, true, A::None,
+    r("shader", G_APP, "Graphics card shader cache", "Shader-Cache der Grafikkarte", "Recreated by the graphics driver. Games may stutter briefly on first start.", "Wird vom Grafiktreiber neu erzeugt. Spiele ruckeln beim ersten Start evtl. kurz.", Safe, true, A::None,
         M::Suffix(&["/nvidia/dxcache", "/nvidia/glcache", "/nvidia corporation/nv_cache", "/amd/dxcache", "/amd/glcache", "/amd/dx9cache", "/appdata/local/d3dscache", "/intel/shadercache", "/locallow/nvidia/perdrivercache"])),
-    r("media-cache", G_APP, "Medien-Caches (Adobe, Steam, Spotify)", "Werden von den Programmen neu erzeugt oder neu geladen.", Safe, true, A::None,
+    r("media-cache", G_APP, "Media caches (Adobe, Steam, Spotify)", "Medien-Caches (Adobe, Steam, Spotify)", "Recreated or downloaded again by the programs.", "Werden von den Programmen neu erzeugt oder neu geladen.", Safe, true, A::None,
         M::Suffix(&["/adobe/common/media cache files", "/adobe/common/media cache", "/adobe/common/peak files", "/steam/appcache/httpcache", "/steam/depotcache", "/appdata/local/spotify/data", "/appdata/local/spotify/storage"])),
-    r("app-cache", G_APP, "Caches anderer Programme", "Zwischenspeicher von Programmen in AppData. Meist gefahrlos, manche Programme müssen danach aber Daten neu laden.", Caution, true, A::None,
+    r("app-cache", G_APP, "Caches of other programs", "Caches anderer Programme", "Program caches in AppData. Usually harmless, but some programs have to load data again afterwards.", "Zwischenspeicher von Programmen in AppData. Meist gefahrlos, manche Programme müssen danach aber Daten neu laden.", Caution, true, A::None,
         M::NameUnder(&["cache", "caches", "code cache", "gpucache", "cacheddata", "cachedextensionvsixs", "cacheddata2"], &["/appdata/"])),
 
-    r("pkg-cache", G_DEV, "Paket-Caches (npm, pip, cargo …)", "Heruntergeladene Pakete. Werden beim nächsten Build automatisch neu geladen.", Safe, true, A::None,
+    r("pkg-cache", G_DEV, "Package caches (npm, pip, cargo …)", "Paket-Caches (npm, pip, cargo …)", "Downloaded packages. They are downloaded again automatically on the next build.", "Heruntergeladene Pakete. Werden beim nächsten Build automatisch neu geladen.", Safe, true, A::None,
         M::Suffix(&["/appdata/local/npm-cache", "/appdata/roaming/npm-cache", "/appdata/local/pip/cache", "/appdata/local/uv/cache", "/appdata/local/yarn/cache", "/appdata/local/pnpm/store", "/.cargo/registry", "/.gradle/caches", "/.m2/repository", "/.nuget/packages", "/go/pkg/mod", "/.conda/pkgs", "/anaconda3/pkgs", "/miniconda3/pkgs", "/.npm/_cacache", "/.cache/pip", "/.cache/uv", "/.cache/yarn", "/.cache/go-build", "/.cache/pnpm", "/.local/share/pnpm/store"])),
-    r("pycache", G_DEV, "Python-Zwischendateien", "Werden von Python automatisch neu erzeugt.", Safe, false, A::None,
+    r("pycache", G_DEV, "Python interim files", "Python-Zwischendateien", "Recreated automatically by Python.", "Werden von Python automatisch neu erzeugt.", Safe, false, A::None,
         M::Name(&["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".ipynb_checkpoints", ".tox"])),
-    r("build-rust", G_DEV, "Rust-Buildordner", "Build-Ergebnisse. \"cargo build\" erzeugt sie neu.", Safe, false, A::None,
+    r("build-rust", G_DEV, "Rust build folders", "Rust-Buildordner", "Build results. \"cargo build\" recreates them.", "Build-Ergebnisse. \"cargo build\" erzeugt sie neu.", Safe, false, A::None,
         M::NameWithSibling(&["target"], &["cargo.toml"])),
-    r("build-dotnet", G_DEV, ".NET-Buildordner", "Build-Ergebnisse. Werden beim nächsten Build neu erzeugt.", Safe, false, A::None,
+    r("build-dotnet", G_DEV, ".NET build folders", ".NET-Buildordner", "Build results. They are recreated on the next build.", "Build-Ergebnisse. Werden beim nächsten Build neu erzeugt.", Safe, false, A::None,
         M::NameWithSibling(&["bin", "obj"], &[".csproj", ".vbproj", ".fsproj", ".sln"])),
-    r("build-js", G_DEV, "Web-Buildordner", "Build-Caches von Next.js, Nuxt, Vite & Co. Werden neu erzeugt.", Safe, false, A::None,
+    r("build-js", G_DEV, "Web build folders", "Web-Buildordner", "Build caches of Next.js, Nuxt, Vite and others. They are recreated.", "Build-Caches von Next.js, Nuxt, Vite & Co. Werden neu erzeugt.", Safe, false, A::None,
         M::Name(&[".next", ".nuxt", ".turbo", ".parcel-cache", ".svelte-kit", ".angular", ".vite"])),
-    r("node-modules", G_DEV, "node_modules", "Abhängigkeiten von JavaScript-Projekten. Mit \"npm install\" jederzeit wiederherstellbar. Lohnt sich vor allem bei ruhenden Projekten.", Caution, false, A::None,
+    r("node-modules", G_DEV, "node_modules", "node_modules", "Dependencies of JavaScript projects. Can be restored at any time with \"npm install\". Most worthwhile for dormant projects.", "Abhängigkeiten von JavaScript-Projekten. Mit \"npm install\" jederzeit wiederherstellbar. Lohnt sich vor allem bei ruhenden Projekten.", Caution, false, A::None,
         M::Name(&["node_modules"])),
-    r("venv", G_DEV, "Python-Umgebungen", "Virtuelle Umgebungen. Lassen sich aus der requirements-Datei neu aufbauen, falls eine existiert.", Caution, false, A::None,
+    r("venv", G_DEV, "Python environments", "Python-Umgebungen", "Virtual environments. They can be rebuilt from the requirements file, if there is one.", "Virtuelle Umgebungen. Lassen sich aus der requirements-Datei neu aufbauen, falls eine existiert.", Caution, false, A::None,
         M::Contains("pyvenv.cfg")),
 
-    r("incomplete", G_REST, "Abgebrochene Downloads", "Unvollständige Dateien, älter als eine Woche. Laufende Downloads sind damit nicht gemeint.", Safe, false, A::None,
+    r("incomplete", G_REST, "Aborted downloads", "Abgebrochene Downloads", "Incomplete files older than one week. Running downloads are not affected.", "Unvollständige Dateien, älter als eine Woche. Laufende Downloads sind damit nicht gemeint.", Safe, false, A::None,
         M::Ext(&["crdownload", "part", "partial", "download", "!ut", "!qb"], 7)),
-    r("tmp-files", G_REST, "Temporäre Dateien überall", "Dateien mit .tmp oder .temp, älter als eine Woche.", Safe, false, A::None,
+    r("tmp-files", G_REST, "Temporary files everywhere", "Temporäre Dateien überall", "Files with .tmp or .temp, older than one week.", "Dateien mit .tmp oder .temp, älter als eine Woche.", Safe, false, A::None,
         M::Ext(&["tmp", "temp"], 7)),
-    r("dumps", G_REST, "Speicherabbilder", "Abbilder von Programmabstürzen (.dmp, .hprof). Nur für die Fehlersuche nützlich.", Safe, false, A::None,
+    r("dumps", G_REST, "Memory dumps", "Speicherabbilder", "Dumps of program crashes (.dmp, .hprof). Only useful for troubleshooting.", "Abbilder von Programmabstürzen (.dmp, .hprof). Nur für die Fehlersuche nützlich.", Safe, false, A::None,
         M::Ext(&["dmp", "mdmp", "hprof"], 0)),
-    r("logs", G_REST, "Alte Protokolldateien", "Logdateien, die seit über 30 Tagen nicht mehr geschrieben wurden.", Caution, false, A::None,
+    r("logs", G_REST, "Old log files", "Alte Protokolldateien", "Log files that have not been written to for over 30 days.", "Logdateien, die seit über 30 Tagen nicht mehr geschrieben wurden.", Caution, false, A::None,
         M::Ext(&["log", "etl", "trace"], 30)),
-    r("old-installers", G_REST, "Alte Installer & Archive in Downloads", "Setup-Dateien und Archive im Download-Ordner, älter als 90 Tage. Oft längst installiert oder entpackt.", Review, false, A::None,
+    r("old-installers", G_REST, "Old installers & archives in Downloads", "Alte Installer & Archive in Downloads", "Setup files and archives in the download folder, older than 90 days. Often installed or unpacked long ago.", "Setup-Dateien und Archive im Download-Ordner, älter als 90 Tage. Oft längst installiert oder entpackt.", Review, false, A::None,
         M::ExtIn(&["exe", "msi", "msix", "iso", "zip", "rar", "7z", "dmg", "cab", "tar", "gz", "tgz", "xz", "bz2", "zst", "deb", "rpm", "appimage", "run"], "/downloads", 90)),
-    r("backups", G_REST, "Sicherungskopien", "Dateien mit .bak, .old oder .orig. Prüfen Sie, ob das Original noch da ist.", Review, false, A::None,
+    r("backups", G_REST, "Backup copies", "Sicherungskopien", "Files with .bak, .old or .orig. Check whether the original still exists.", "Dateien mit .bak, .old oder .orig. Prüfen Sie, ob das Original noch da ist.", Review, false, A::None,
         M::Ext(&["bak", "old", "orig", "backup"], 30)),
 
-    r("games", G_BIG, "Installierte Spiele", "Lassen sich jederzeit neu herunterladen. Bitte über den Launcher deinstallieren, damit er Bescheid weiß.", Review, false, A::None,
+    r("games", G_BIG, "Installed games", "Installierte Spiele", "Can be downloaded again at any time. Please uninstall them through the launcher so that it knows.", "Lassen sich jederzeit neu herunterladen. Bitte über den Launcher deinstallieren, damit er Bescheid weiß.", Review, false, A::None,
         M::ChildOf(&["/steamapps/common", "/epic games", "/gog games", "/riot games", "/xboxgames", "/ea games", "/ubisoft game launcher/games", "/battle.net/games"])),
-    r("ml-models", G_BIG, "KI-Modell-Caches", "Heruntergeladene Modelle (Hugging Face, Ollama, LM Studio). Lassen sich erneut laden, das dauert aber.", Review, false, A::None,
+    r("ml-models", G_BIG, "AI model caches", "KI-Modell-Caches", "Downloaded models (Hugging Face, Ollama, LM Studio). They can be downloaded again, but that takes time.", "Heruntergeladene Modelle (Hugging Face, Ollama, LM Studio). Lassen sich erneut laden, das dauert aber.", Review, false, A::None,
         M::Suffix(&["/.cache/huggingface", "/.ollama/models", "/.cache/torch", "/.cache/lm-studio/models", "/.lmstudio/models"])),
-    r("vm-disks", G_BIG, "Virtuelle Festplatten", "Festplatten von VMs, WSL und Docker. Enthalten oft wichtige Daten, wachsen aber still vor sich hin.", Review, false, A::None,
+    r("vm-disks", G_BIG, "Virtual hard disks", "Virtuelle Festplatten", "Disks of VMs, WSL and Docker. They often contain important data, but quietly keep growing.", "Festplatten von VMs, WSL und Docker. Enthalten oft wichtige Daten, wachsen aber still vor sich hin.", Review, false, A::None,
         M::Ext(&["vhd", "vhdx", "vmdk", "vdi", "qcow2", "avhdx"], 0)),
-    r("phone-backups", G_BIG, "iPhone-Backups", "Lokale Sicherungen aus iTunes oder der Geräte-App. Alte Geräte können meist weg.", Review, false, A::None,
+    r("phone-backups", G_BIG, "iPhone backups", "iPhone-Backups", "Local backups from iTunes or the Devices app. Those of old devices can usually go.", "Lokale Sicherungen aus iTunes oder der Geräte-App. Alte Geräte können meist weg.", Review, false, A::None,
         M::Suffix(&["/apple/mobilesync/backup", "/apple computer/mobilesync/backup"])),
 
-    r("hibernate", G_BIG, "Ruhezustand-Datei", "Hält den Arbeitsspeicher für den Ruhezustand bereit. Nicht löschen, sondern mit \"powercfg /h off\" abschalten, wenn Sie keinen Ruhezustand nutzen.", Info, false, A::None,
+    r("hibernate", G_BIG, "Hibernation file", "Ruhezustand-Datei", "Holds the RAM contents for hibernation. Do not delete it. Turn it off with \"powercfg /h off\" if you do not use hibernation.", "Hält den Arbeitsspeicher für den Ruhezustand bereit. Nicht löschen, sondern mit \"powercfg /h off\" abschalten, wenn Sie keinen Ruhezustand nutzen.", Info, false, A::None,
         M::File(&["hiberfil.sys"])),
-    r("pagefile", G_BIG, "Auslagerungsdatei", "Erweitert den Arbeitsspeicher. Nicht löschen. Die Größe lässt sich unter Systemeigenschaften > Erweitert > Leistung einstellen.", Info, false, A::None,
+    r("pagefile", G_BIG, "Page file", "Auslagerungsdatei", "Extends the RAM. Do not delete it. The size can be set under System Properties > Advanced > Performance.", "Erweitert den Arbeitsspeicher. Nicht löschen. Die Größe lässt sich unter Systemeigenschaften > Erweitert > Leistung einstellen.", Info, false, A::None,
         M::File(&["pagefile.sys", "swapfile.sys"])),
-    r("winsxs", G_BIG, "Windows-Komponentenspeicher", "Nicht löschen. Aufräumen geht nur so: \"Dism /Online /Cleanup-Image /StartComponentCleanup\" als Administrator.", Info, false, A::None,
+    r("winsxs", G_BIG, "Windows component store", "Windows-Komponentenspeicher", "Do not delete it. The only way to clean it up: \"Dism /Online /Cleanup-Image /StartComponentCleanup\" as administrator.", "Nicht löschen. Aufräumen geht nur so: \"Dism /Online /Cleanup-Image /StartComponentCleanup\" als Administrator.", Info, false, A::None,
         M::Suffix(&["/windows/winsxs"])),
-    r("installer-cache", G_BIG, "Windows-Installer-Cache", "Nicht löschen. Wird zum Reparieren und Deinstallieren von Programmen gebraucht.", Info, false, A::None,
+    r("installer-cache", G_BIG, "Windows Installer cache", "Windows-Installer-Cache", "Do not delete it. It is needed to repair and uninstall programs.", "Nicht löschen. Wird zum Reparieren und Deinstallieren von Programmen gebraucht.", Info, false, A::None,
         M::Suffix(&["/windows/installer"])),
-    r("swap-linux", G_BIG, "Auslagerungsdatei", "Erweitert den Arbeitsspeicher. Nicht löschen. Verwaltet wird sie mit swapon, swapoff und /etc/fstab.", Info, false, A::None,
+    r("swap-linux", G_BIG, "Swap file", "Auslagerungsdatei", "Extends the RAM. Do not delete it. It is managed with swapon, swapoff and /etc/fstab.", "Erweitert den Arbeitsspeicher. Nicht löschen. Verwaltet wird sie mit swapon, swapoff und /etc/fstab.", Info, false, A::None,
         M::File(&["swapfile", "swap.img"])),
-    r("journal", G_BIG, "Systemprotokoll (journald)", "Nicht von Hand löschen. Verkleinern lässt es sich mit \"journalctl --vacuum-size=200M\" als Administrator.", Info, false, A::None,
+    r("journal", G_BIG, "System log (journald)", "Systemprotokoll (journald)", "Do not delete it by hand. Shrink it with \"journalctl --vacuum-size=200M\" as administrator.", "Nicht von Hand löschen. Verkleinern lässt es sich mit \"journalctl --vacuum-size=200M\" als Administrator.", Info, false, A::None,
         M::Abs(&["/var/log/journal"])),
-    r("snap-store", G_BIG, "Snap-Pakete", "Nicht von Hand löschen. Weniger alte Versionen behält das System mit \"snap set system refresh.retain=2\".", Info, false, A::None,
+    r("snap-store", G_BIG, "Snap packages", "Snap-Pakete", "Do not delete them by hand. The system keeps fewer old versions with \"snap set system refresh.retain=2\".", "Nicht von Hand löschen. Weniger alte Versionen behält das System mit \"snap set system refresh.retain=2\".", Info, false, A::None,
         M::Abs(&["/var/lib/snapd/snaps"])),
-    r("flatpak-store", G_BIG, "Flatpak-Speicher", "Nicht von Hand löschen. Unbenutztes entfernt \"flatpak uninstall --unused\".", Info, false, A::None,
+    r("flatpak-store", G_BIG, "Flatpak storage", "Flatpak-Speicher", "Do not delete it by hand. \"flatpak uninstall --unused\" removes what is unused.", "Nicht von Hand löschen. Unbenutztes entfernt \"flatpak uninstall --unused\".", Info, false, A::None,
         M::Abs(&["/var/lib/flatpak"])),
-    r("container-store", G_BIG, "Container-Daten", "Nicht von Hand löschen. Aufräumen geht mit \"docker system prune\" oder \"podman system prune\".", Info, false, A::None,
+    r("container-store", G_BIG, "Container data", "Container-Daten", "Do not delete it by hand. Clean it up with \"docker system prune\" or \"podman system prune\".", "Nicht von Hand löschen. Aufräumen geht mit \"docker system prune\" oder \"podman system prune\".", Info, false, A::None,
         M::Abs(&["/var/lib/docker", "/var/lib/containers"])),
     // Steht zuletzt, damit die genaueren Regeln fuer ~/.cache zuerst greifen.
-    r("user-cache", G_APP, "Caches anderer Programme", "Inhalt von ~/.cache. Meist gefahrlos, manche Programme müssen danach aber Daten neu laden.", Caution, false, A::None,
+    r("user-cache", G_APP, "Caches of other programs", "Caches anderer Programme", "Contents of ~/.cache. Usually harmless, but some programs have to load data again afterwards.", "Inhalt von ~/.cache. Meist gefahrlos, manche Programme müssen danach aber Daten neu laden.", Caution, false, A::None,
         M::ChildOf(&["/.cache"])),
 ];
 
@@ -429,6 +444,21 @@ mod tests {
                 (r"Daten\vm.vhdx", 555),
             ],
         )
+    }
+
+    #[test]
+    fn every_rule_speaks_both_languages() {
+        use crate::i18n::Lang::{De, En};
+        let names = ["node_modules", "System"];
+        for rule in RULES {
+            for text in [&rule.title, &rule.why, &rule.group] {
+                assert!(!text.get(En).is_empty() && !text.get(De).is_empty(), "{}", rule.id);
+                let umlaut = |s: &str| s.contains(['ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß']);
+                assert!(!umlaut(text.get(En)), "{}: {}", rule.id, text.get(En));
+            }
+            assert!(rule.why.get(En) != rule.why.get(De), "{}", rule.id);
+            assert!(names.contains(&rule.title.get(En)) || rule.title.get(En) != rule.title.get(De), "{}", rule.id);
+        }
     }
 
     #[test]

@@ -1,8 +1,9 @@
 // Die Speicherkarte: jede Flaeche ist genau so gross wie der Platz, den sie belegt.
 // Gezeichnet wird einmal in einen Puffer; Hover malt nur noch die Markierung darueber.
 
-import { h, fmtBytes, fmtNum, fmtPct, fmtDate, cssVar, showTip, hideTip, tipBlock, CAT_NAMES } from './util.js';
+import { h, fmtBytes, fmtNum, fmtPct, fmtDate, cssVar, showTip, hideTip, tipBlock, catName } from './util.js';
 import { ageColor } from './charts.js';
+import { t, tn } from './i18n.js';
 
 const K_FILE = 0, K_DIR = 1, K_REST = 2, K_UNKNOWN = 3, K_FREE = 4;
 const HEADER = 17;
@@ -25,8 +26,8 @@ export function buildTree(data, { showFree = false } = {}) {
       n.kids.forEach((k) => { k.up = n; });
     }
   }
-  if (data.unaccounted > 0) root.kids.push({ id: -1, kind: K_UNKNOWN, alloc: data.unaccounted, name: 'Nicht erfasst', kids: [], up: root });
-  if (showFree && data.free > 0) root.kids.push({ id: -2, kind: K_FREE, alloc: data.free, name: 'Freier Speicher', kids: [], up: root });
+  if (data.unaccounted > 0) root.kids.push({ id: -1, kind: K_UNKNOWN, alloc: data.unaccounted, name: t('map.notCaptured'), kids: [], up: root });
+  if (showFree && data.free > 0) root.kids.push({ id: -2, kind: K_FREE, alloc: data.free, name: t('map.free'), kids: [], up: root });
   root.kids.sort((a, b) => b.alloc - a.alloc);
   root.total = root.kids.reduce((s, k) => s + k.alloc, 0) || root.alloc || 1;
   return root;
@@ -95,7 +96,7 @@ export class TreeMap {
   constructor(host, opts = {}) {
     this.host = host;
     this.opts = opts;
-    this.canvas = h('canvas', { role: 'img', 'aria-label': 'Speicherkarte: Flächen zeigen den belegten Platz. Die gleichen Daten stehen in der Ordner-Ansicht als Tabelle.' });
+    this.canvas = h('canvas', { role: 'img', 'aria-label': t('map.aria') });
     host.append(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     this.buf = document.createElement('canvas');
@@ -237,7 +238,7 @@ export class TreeMap {
   label(g, n, x, y, w, ht, bg) {
     const special = n.kind === K_UNKNOWN || n.kind === K_FREE;
     const ink = special ? this.colors.ink : (n.kind === K_REST && this.mode !== 'age' ? this.colors.ink : inkOn(bg.startsWith('#') ? bg : '#808080'));
-    const name = n.kind === K_REST ? `${fmtNum(n.count)} kleinere` : n.name;
+    const name = n.kind === K_REST ? t('map.smaller', { n: fmtNum(n.count) }) : n.name;
     g.save();
     g.beginPath(); g.rect(x, y, w, ht); g.clip();
     g.fillStyle = ink;
@@ -315,12 +316,12 @@ export class TreeMap {
     const total = this.root.total;
     const trail = [];
     for (let p = n.up; p && p !== this.root; p = p.up) trail.unshift(p.name);
-    if (n.kind === K_UNKNOWN) return tipBlock(fmtBytes(n.alloc), n.name, 'Das System meldet diesen Platz als belegt, gelesen werden konnte er nicht: Systembereiche, Schattenkopien oder fehlende Rechte.');
+    if (n.kind === K_UNKNOWN) return tipBlock(fmtBytes(n.alloc), n.name, t('map.unknownTip'));
     if (n.kind === K_FREE) return tipBlock(fmtBytes(n.alloc), n.name, fmtPct(n.alloc / total));
-    if (n.kind === K_REST) return tipBlock(fmtBytes(n.alloc), `${fmtNum(n.count)} kleinere Einträge`, `zusammengefasst, weil sie einzeln zu klein wären · ${fmtPct(n.alloc / total)}`, trail.join(' › '));
+    if (n.kind === K_REST) return tipBlock(fmtBytes(n.alloc), t('map.smallerEntries', { n: fmtNum(n.count) }), t('map.restTip', { pct: fmtPct(n.alloc / total) }), trail.join(' › '));
     const sub = n.kind === K_DIR
-      ? `Ordner · ${fmtNum(n.count)} Dateien · ${fmtPct(n.alloc / total)}`
-      : `${CAT_NAMES[n.cat]} · geändert ${fmtDate(n.mtime)} · ${fmtPct(n.alloc / total)}`;
+      ? t('map.dirTip', { files: tn('unit.files', n.count), pct: fmtPct(n.alloc / total) })
+      : t('map.fileTip', { cat: catName(n.cat), date: fmtDate(n.mtime), pct: fmtPct(n.alloc / total) });
     return tipBlock(fmtBytes(n.alloc), n.name, sub, trail.join(' › '));
   }
   onClick(e) {
@@ -394,7 +395,7 @@ export class TreeMap {
 export function ageLegend() {
   const stops = [...Array(8).keys()].map((i) => ageColor(i, 8));
   return h('span', { class: 'row' },
-    h('span', null, 'neu'),
+    h('span', null, t('map.new')),
     h('i', { class: 'ramp', style: { background: `linear-gradient(90deg, ${stops.join(',')})` } }),
-    h('span', null, '> 10 Jahre'));
+    h('span', null, t('map.old')));
 }

@@ -2,6 +2,7 @@
 
 import { h, fmtBytes, fmtNum, fmtPct, cssVar, showTip, hideTip, tipBlock } from './util.js';
 import { buildTree } from './treemap.js';
+import { t } from './i18n.js';
 
 const TAU = Math.PI * 2;
 
@@ -9,7 +10,7 @@ export class Sunburst {
   constructor(host, opts = {}) {
     this.host = host;
     this.opts = opts;
-    this.canvas = h('canvas', { role: 'img', 'aria-label': 'Ringansicht der Ordner. Die gleichen Daten stehen in der Ordner-Ansicht als Tabelle.' });
+    this.canvas = h('canvas', { role: 'img', 'aria-label': t('rings.aria') });
     host.append(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     this.arcs = [];
@@ -92,7 +93,7 @@ export class Sunburst {
     const font = cssVar('--font');
     g.fillStyle = cssVar('--ink');
     const show = this.hover?.n || null;
-    const title = show ? (show.kind === 2 ? `${fmtNum(show.count)} kleinere` : show.name) : this.rootName;
+    const title = show ? (show.kind === 2 ? t('map.smaller', { n: fmtNum(show.count) }) : show.name) : this.rootName;
     const val = show ? show.alloc : this.data.alloc;
     g.font = `600 ${Math.max(18, this.r0 * 0.34)}px ${font}`;
     g.fillText(fmtBytes(val), this.cx, this.cy - 6);
@@ -102,15 +103,15 @@ export class Sunburst {
     if (!show && this.data.ancestors.length > 1) {
       g.fillStyle = cssVar('--ink-3');
       g.font = `400 11px ${font}`;
-      g.fillText('Mitte: eine Ebene höher', this.cx, this.cy + this.r0 * 0.56);
+      g.fillText(t('rings.centerUp'), this.cx, this.cy + this.r0 * 0.56);
     }
     g.textAlign = 'start';
   }
   fit(g, s, w) {
     if (g.measureText(s).width <= w) return s;
-    let t = s;
-    while (t.length > 2 && g.measureText(t + '…').width > w) t = t.slice(0, -1);
-    return t + '…';
+    let cut = s;
+    while (cut.length > 2 && g.measureText(cut + '…').width > w) cut = cut.slice(0, -1);
+    return cut + '…';
   }
   isAncestor(n, of) {
     for (let p = of; p; p = p.up) if (p === n) return true;
@@ -135,7 +136,7 @@ export class Sunburst {
     const n = next.n;
     const trail = [];
     for (let p = n.up; p && p !== this.root; p = p.up) trail.unshift(p.name);
-    showTip(e.clientX, e.clientY, tipBlock(fmtBytes(n.alloc), n.kind === 2 ? `${fmtNum(n.count)} kleinere Einträge` : n.name,
+    showTip(e.clientX, e.clientY, tipBlock(fmtBytes(n.alloc), n.kind === 2 ? t('map.smallerEntries', { n: fmtNum(n.count) }) : n.name,
       `${fmtPct(n.alloc / this.root.total)}`, trail.join(' › ')));
   }
   onClick(e) {

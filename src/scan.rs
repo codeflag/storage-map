@@ -2,6 +2,7 @@
 //! Sie liefert in einem Rutsch Groesse, belegten Platz, Zeiten und Datei-ID.
 
 use crate::category;
+use crate::i18n::Text;
 use crate::index::*;
 use crate::platform::{self, DirPath, RawEntry};
 use rayon::prelude::*;
@@ -84,7 +85,7 @@ pub fn threads_for(media: &str) -> usize {
 }
 
 /// Fuehrt den Scan aus. `None`, wenn er abgebrochen wurde oder die Wurzel nicht lesbar ist.
-pub fn scan(root: &str, progress: &ScanProgress) -> Result<Index, String> {
+pub fn scan(root: &str, progress: &ScanProgress) -> Result<Index, Text> {
     let root_path = platform::root_dir_path(root);
 
     let arena = Mutex::new(Arena { nodes: Vec::with_capacity(1 << 20), names: Vec::with_capacity(1 << 24), denied: vec![] });
@@ -95,7 +96,7 @@ pub fn scan(root: &str, progress: &ScanProgress) -> Result<Index, String> {
     }
     let queue = Mutex::new(Queue { tasks: vec![Task { node: 0, top: NONE, path: root_path }], active: 0 });
     let cv = Condvar::new();
-    let fatal: Mutex<Option<String>> = Mutex::new(None);
+    let fatal: Mutex<Option<Text>> = Mutex::new(None);
 
     std::thread::scope(|s| {
         for _ in 0..progress.threads.max(1) {
@@ -107,7 +108,7 @@ pub fn scan(root: &str, progress: &ScanProgress) -> Result<Index, String> {
         return Err(e);
     }
     if progress.cancel.load(Relaxed) {
-        return Err("Abgebrochen".into());
+        return Err(Text::new("Cancelled", "Abgebrochen"));
     }
     let a = arena.into_inner().unwrap();
     let mut ix = Index { nodes: a.nodes, names: a.names, meta: Meta::default() };
@@ -117,7 +118,7 @@ pub fn scan(root: &str, progress: &ScanProgress) -> Result<Index, String> {
     Ok(ix)
 }
 
-fn worker(queue: &Mutex<Queue>, cv: &Condvar, arena: &Mutex<Arena>, progress: &ScanProgress, fatal: &Mutex<Option<String>>) {
+fn worker(queue: &Mutex<Queue>, cv: &Condvar, arena: &Mutex<Arena>, progress: &ScanProgress, fatal: &Mutex<Option<Text>>) {
     let mut lister = platform::Lister::new();
     let mut entries: Vec<RawEntry> = Vec::with_capacity(1024);
     let mut names: Vec<u8> = Vec::with_capacity(64 * 1024);
@@ -165,7 +166,7 @@ fn worker(queue: &Mutex<Queue>, cv: &Condvar, arena: &Mutex<Arena>, progress: &S
                 }
             }
             if a.names.len() + names.len() > MAX_NAME_BYTES {
-                *fatal.lock().unwrap() = Some("Zu viele Dateien fuer einen Scan".into());
+                *fatal.lock().unwrap() = Some(Text::new("Too many files for one scan", "Zu viele Dateien für einen Scan"));
                 progress.cancel.store(true, Relaxed);
             }
             let base = a.nodes.len() as u32;

@@ -2,6 +2,7 @@
 
 use crate::category;
 use crate::guard;
+use crate::i18n::{Lang, Text};
 use crate::index::*;
 use crate::junk::{self, JunkReport, Risk};
 use rayon::prelude::*;
@@ -16,15 +17,26 @@ pub fn now_secs() -> u64 {
 const DAY: u64 = 86_400;
 const YEAR: u64 = 365 * DAY;
 
-pub const AGE_BINS: [(&str, u64); 8] = [
-    ("< 1 Woche", 7 * DAY),
-    ("< 1 Monat", 30 * DAY),
-    ("< 6 Monate", 182 * DAY),
-    ("< 1 Jahr", YEAR),
-    ("1–2 Jahre", 2 * YEAR),
-    ("2–3 Jahre", 3 * YEAR),
-    ("3–5 Jahre", 5 * YEAR),
-    ("> 5 Jahre", u64::MAX),
+pub struct AgeBin {
+    pub label: Text,
+    /// Kurzform fuer die Achse eines Diagramms.
+    pub short: Text,
+    pub limit: u64,
+}
+
+const fn age_bin(en: &'static str, de: &'static str, short_en: &'static str, short_de: &'static str, limit: u64) -> AgeBin {
+    AgeBin { label: Text::new(en, de), short: Text::new(short_en, short_de), limit }
+}
+
+pub static AGE_BINS: [AgeBin; 8] = [
+    age_bin("< 1 week", "< 1 Woche", "<1w", "<1W", 7 * DAY),
+    age_bin("< 1 month", "< 1 Monat", "<1mo", "<1M", 30 * DAY),
+    age_bin("< 6 months", "< 6 Monate", "<6mo", "<6M", 182 * DAY),
+    age_bin("< 1 year", "< 1 Jahr", "<1y", "<1J", YEAR),
+    age_bin("1–2 years", "1–2 Jahre", "1–2y", "1–2J", 2 * YEAR),
+    age_bin("2–3 years", "2–3 Jahre", "2–3y", "2–3J", 3 * YEAR),
+    age_bin("3–5 years", "3–5 Jahre", "3–5y", "3–5J", 5 * YEAR),
+    age_bin("> 5 years", "> 5 Jahre", ">5y", ">5J", u64::MAX),
 ];
 
 pub const SIZE_BINS: [(&str, u64); 7] = [
@@ -37,10 +49,10 @@ pub const SIZE_BINS: [(&str, u64); 7] = [
     ("> 50 GB", u64::MAX),
 ];
 
-pub fn row(ix: &Index, id: u32) -> Value {
+pub fn row(ix: &Index, id: u32, lang: Lang) -> Value {
     let n = &ix.nodes[id as usize];
     let path = ix.path(id);
-    let guard = guard::check(&path);
+    let guard = guard::check(&path).json(lang);
     json!({
         "id": id,
         "parent": n.parent,
@@ -161,8 +173,8 @@ pub fn map(ix: &Index, id: u32, limit: usize, minfrac: f64, maxdepth: u32) -> Va
 
 /// Detailansicht eines Eintrags, inklusive "Hauptverursacher": dem Pfad, dem man folgen muss,
 /// um den groessten Teil des Platzes zu finden.
-pub fn node_detail(ix: &Index, id: u32) -> Value {
-    let mut base = row(ix, id);
+pub fn node_detail(ix: &Index, id: u32, lang: Lang) -> Value {
+    let mut base = row(ix, id, lang);
     let n = &ix.nodes[id as usize];
     let ancestors: Vec<Value> =
         ix.ancestors(id).iter().map(|a| json!({"id": a, "name": ix.name(*a), "alloc": ix.nodes[*a as usize].alloc})).collect();
@@ -229,7 +241,7 @@ pub fn hotspots(ix: &Index, count: usize) -> Vec<u32> {
     out
 }
 
-pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verified: bool) -> Value {
+pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verified: bool, lang: Lang) -> Value {
     let now = now_secs();
     let mut cats = [(0u64, 0u64); category::COUNT];
     let mut ages = vec![(0u64, 0u64); AGE_BINS.len()];
@@ -266,11 +278,11 @@ pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verif
         e.1 += 1;
 
         let age = now.saturating_sub(n.mtime as u64);
-        let b = AGE_BINS.iter().position(|(_, lim)| age < *lim).unwrap_or(AGE_BINS.len() - 1);
+        let b = AGE_BINS.iter().position(|bin| age < bin.limit).unwrap_or(AGE_BINS.len() - 1);
         ages[b].0 += n.alloc;
         ages[b].1 += 1;
         let aage = now.saturating_sub(n.atime as u64);
-        let b = AGE_BINS.iter().position(|(_, lim)| aage < *lim).unwrap_or(AGE_BINS.len() - 1);
+        let b = AGE_BINS.iter().position(|bin| aage < bin.limit).unwrap_or(AGE_BINS.len() - 1);
         acc_ages[b].0 += n.alloc;
         acc_ages[b].1 += 1;
         if age > 2 * YEAR {
@@ -315,27 +327,35 @@ pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verif
         recs.push(json!({
             "kind": "rule",
             "rule": rule.id,
-            "title": rule.title,
-            "why": rule.why,
+            "title": rule.title.get(lang),
+            "why": rule.why.get(lang),
             "risk": rule.risk,
-            "group": rule.group,
+            "group": rule.group.get(lang),
             "bytes": res.alloc,
             "items": res.items.len(),
         }));
     }
     if let Some(w) = dup_wasted {
         if w > 0 {
+            let why = if dup_verified {
+                Text::new(
+                    "Same content, stored more than once. One copy of each group is enough.",
+                    "Gleicher Inhalt, mehrfach gespeichert. Von jeder Gruppe genügt eine Kopie.",
+                )
+            } else {
+                Text::new("Very likely the same content (quick check).", "Sehr wahrscheinlich gleicher Inhalt (Schnellprüfung).")
+            };
             recs.push(json!({
-                "kind": "dups", "title": "Doppelte Dateien",
-                "why": if dup_verified {"Gleicher Inhalt, mehrfach gespeichert. Von jeder Gruppe genügt eine Kopie."} else {"Sehr wahrscheinlich gleicher Inhalt (Schnellprüfung)."},
+                "kind": "dups", "title": Text::new("Duplicate files", "Doppelte Dateien").get(lang),
+                "why": why.get(lang),
                 "risk": Risk::Review, "bytes": w, "items": 0,
             }));
         }
     }
     if stale_5y > 1 << 30 {
         recs.push(json!({
-            "kind": "stale", "title": "Dateien, seit über 5 Jahren unverändert",
-            "why": "Lange nicht angefasst. Kandidaten fürs Archiv oder zum Löschen.",
+            "kind": "stale", "title": Text::new("Files unchanged for over 5 years", "Dateien, seit über 5 Jahren unverändert").get(lang),
+            "why": Text::new("Not touched for a long time. Candidates for the archive or for deleting.", "Lange nicht angefasst. Kandidaten fürs Archiv oder zum Löschen.").get(lang),
             "risk": Risk::Review, "bytes": stale_5y, "items": 0,
         }));
     }
@@ -344,7 +364,7 @@ pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verif
         (info, std::cmp::Reverse(r["bytes"].as_u64().unwrap_or(0)))
     });
 
-    let hot: Vec<Value> = hotspots(ix, 14).iter().map(|h| row(ix, *h)).collect();
+    let hot: Vec<Value> = hotspots(ix, 14).iter().map(|h| row(ix, *h, lang)).collect();
     let top_dirs: Vec<Value> = ix.children_by_size(0).iter().take(12).map(|c| light_row(ix, *c)).collect();
 
     json!({
@@ -369,15 +389,15 @@ pub fn summary(ix: &Index, junk: &JunkReport, dup_wasted: Option<u64>, dup_verif
         "safeBytes": junk.safe_bytes(),
         "dupWasted": dup_wasted,
         "emptyDirs": junk.empty_dirs.len(),
-        "cats": category::NAMES.iter().enumerate().map(|(i, n)| json!({"id": i, "name": n, "alloc": cats[i].0, "files": cats[i].1})).collect::<Vec<_>>(),
-        "ages": AGE_BINS.iter().enumerate().map(|(i, (l, _))| json!({"label": l, "alloc": ages[i].0, "files": ages[i].1})).collect::<Vec<_>>(),
-        "accessAges": AGE_BINS.iter().enumerate().map(|(i, (l, _))| json!({"label": l, "alloc": acc_ages[i].0, "files": acc_ages[i].1})).collect::<Vec<_>>(),
+        "cats": category::names(lang).iter().enumerate().map(|(i, n)| json!({"id": i, "name": n, "alloc": cats[i].0, "files": cats[i].1})).collect::<Vec<_>>(),
+        "ages": AGE_BINS.iter().enumerate().map(|(i, b)| json!({"label": b.label.get(lang), "short": b.short.get(lang), "alloc": ages[i].0, "files": ages[i].1})).collect::<Vec<_>>(),
+        "accessAges": AGE_BINS.iter().enumerate().map(|(i, b)| json!({"label": b.label.get(lang), "short": b.short.get(lang), "alloc": acc_ages[i].0, "files": acc_ages[i].1})).collect::<Vec<_>>(),
         "sizes": SIZE_BINS.iter().enumerate().map(|(i, (l, _))| json!({"label": l, "alloc": sizes[i].0, "files": sizes[i].1})).collect::<Vec<_>>(),
         "years": years.iter().map(|(y, v)| json!({"year": y, "alloc": v.0, "files": v.1})).collect::<Vec<_>>(),
         "exts": ext_rows.iter().filter(|e| e.1 > 0).take(12).map(|(i, a, c)| json!({"ext": ix.meta.exts[*i], "alloc": a, "files": c})).collect::<Vec<_>>(),
         "hotspots": hot,
         "topDirs": top_dirs,
-        "topFiles": files.iter().map(|(_, i)| row(ix, *i)).collect::<Vec<_>>(),
+        "topFiles": files.iter().map(|(_, i)| row(ix, *i, lang)).collect::<Vec<_>>(),
         "recs": recs,
     })
 }
@@ -519,15 +539,15 @@ pub fn run_query(ix: &Index, q: &FileQuery) -> (Vec<u32>, u64) {
     (ids, sum)
 }
 
-pub fn files_json(ix: &Index, q: &FileQuery) -> Value {
+pub fn files_json(ix: &Index, q: &FileQuery, lang: Lang) -> Value {
     let (ids, sum) = run_query(ix, q);
-    let rows: Vec<Value> = ids.iter().skip(q.offset).take(q.limit).map(|i| row(ix, *i)).collect();
+    let rows: Vec<Value> = ids.iter().skip(q.offset).take(q.limit).map(|i| row(ix, *i, lang)).collect();
     json!({"total": ids.len(), "bytes": sum, "rows": rows})
 }
 
 /// Vergessene Ordner: In ihnen hat sich seit dem Stichtag nichts mehr geaendert.
 /// Nur die oberste Ebene, damit nicht jeder Unterordner einzeln auftaucht.
-pub fn stale_dirs(ix: &Index, cutoff: u32, min: u64, limit: usize) -> Value {
+pub fn stale_dirs(ix: &Index, cutoff: u32, min: u64, limit: usize, lang: Lang) -> Value {
     let mut out: Vec<u32> = (1..ix.nodes.len() as u32)
         .into_par_iter()
         .filter(|i| {
@@ -542,7 +562,7 @@ pub fn stale_dirs(ix: &Index, cutoff: u32, min: u64, limit: usize) -> Value {
     out.par_sort_unstable_by(|a, b| ix.nodes[*b as usize].alloc.cmp(&ix.nodes[*a as usize].alloc).then(a.cmp(b)));
     let total: u64 = out.iter().map(|i| ix.nodes[*i as usize].alloc).sum();
     let count = out.len();
-    let rows: Vec<Value> = out.iter().take(limit).map(|i| row(ix, *i)).collect();
+    let rows: Vec<Value> = out.iter().take(limit).map(|i| row(ix, *i, lang)).collect();
     json!({"total": count, "bytes": total, "rows": rows})
 }
 
@@ -678,7 +698,7 @@ mod tests {
             }
         }
         crate::scan::aggregate(&mut ix);
-        let v = stale_dirs(&ix, 1_500_000_000, 0, 10);
+        let v = stale_dirs(&ix, 1_500_000_000, 0, 10, Lang::En);
         let rows = v["rows"].as_array().unwrap();
         assert_eq!(rows.len(), 1, "{v}");
         assert_eq!(rows[0]["path"], r"D:\Alt");

@@ -16,11 +16,13 @@ use crate::category;
 use crate::config::{self, Level, McpConfig};
 use crate::guard::{self, Guard};
 use crate::history;
+use crate::i18n::{Lang, Text};
 use crate::index::*;
 use crate::junk;
 use crate::paths;
 use crate::platform;
 use crate::server::{self, App, RunMode};
+use crate::tr;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, Write};
@@ -50,8 +52,7 @@ Typical flow: list_drives, get_overview, then search_files or get_cleanup_sugges
 Removing files takes two steps: add paths with add_to_cleanup_list, show the user the result of preview_cleanup, \
 and only then call recycle_files, move_files or delete_permanently with the returned plan_id. \
 Protected system locations can never be removed. \
-Which tools exist depends on the access the user granted in Storage Map; get_access_status reports it. \
-Rule titles and reasons are in German.";
+Which tools exist depends on the access the user granted in Storage Map; get_access_status reports it.";
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Need {
@@ -86,15 +87,29 @@ impl Need {
         }
     }
 
-    fn denied_message(self) -> &'static str {
+    /// Der Client bekommt die englische Fassung, das Protokoll in der Oberflaeche zeigt die Sprache des Nutzers.
+    fn denied_message(self) -> Text {
         match self {
-            Need::Always | Need::Read => "Read access is switched off. The user can enable it in Storage Map under KI-Zugriff.",
-            Need::Scan => "Starting scans is not allowed. The user can allow it in Storage Map under KI-Zugriff, or run the scan there.",
-            Need::Write => "This needs the access level 'write'. The user can raise it in Storage Map under KI-Zugriff.",
-            Need::Delete => "This needs the access level 'delete'. The user can raise it in Storage Map under KI-Zugriff.",
-            Need::Permanent => {
-                "Permanent deletion is not allowed. The user can allow it in Storage Map under KI-Zugriff. Consider recycle_files instead."
-            }
+            Need::Always | Need::Read => Text::new(
+                "Read access is switched off. The user can enable it in Storage Map under AI access.",
+                "Der Lesezugriff ist ausgeschaltet. Das lässt sich in Storage Map unter KI-Zugriff ändern.",
+            ),
+            Need::Scan => Text::new(
+                "Starting scans is not allowed. The user can allow it in Storage Map under AI access, or run the scan there.",
+                "Scans starten ist nicht erlaubt. Das lässt sich in Storage Map unter KI-Zugriff freigeben, oder der Scan läuft direkt dort.",
+            ),
+            Need::Write => Text::new(
+                "This needs the access level 'write'. The user can raise it in Storage Map under AI access.",
+                "Das braucht die Zugriffsstufe „Schreiben“. Sie lässt sich in Storage Map unter KI-Zugriff erhöhen.",
+            ),
+            Need::Delete => Text::new(
+                "This needs the access level 'delete'. The user can raise it in Storage Map under AI access.",
+                "Das braucht die Zugriffsstufe „Löschen“. Sie lässt sich in Storage Map unter KI-Zugriff erhöhen.",
+            ),
+            Need::Permanent => Text::new(
+                "Permanent deletion is not allowed. The user can allow it in Storage Map under AI access. Consider recycle_files instead.",
+                "Endgültiges Löschen ist nicht erlaubt. Das lässt sich in Storage Map unter KI-Zugriff freigeben.",
+            ),
         }
     }
 }
@@ -225,14 +240,25 @@ pub fn audit_path() -> PathBuf {
     history::data_dir().join("mcp-audit.jsonl")
 }
 
-/// Die letzten Eintraege des Protokolls, neueste zuerst.
-pub fn audit_tail(limit: usize) -> Value {
+/// Die letzten Eintraege des Protokolls, neueste zuerst. Aeltere Eintraege haben nur die englische Fassung.
+pub fn audit_tail(limit: usize, lang: Lang) -> Value {
     let text = std::fs::read_to_string(audit_path()).unwrap_or_default();
-    let rows: Vec<Value> = text.lines().rev().filter_map(|l| serde_json::from_str(l).ok()).take(limit).collect();
+    let rows: Vec<Value> = text
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .take(limit)
+        .map(|mut r| {
+            if lang == Lang::De && r["detailDe"].is_string() {
+                r["detail"] = r["detailDe"].clone();
+            }
+            r
+        })
+        .collect();
     json!({ "rows": rows })
 }
 
-fn write_audit(client: &str, tool: &str, args: &Value, outcome: &str, detail: &str) {
+fn write_audit(client: &str, tool: &str, args: &Value, outcome: &str, detail: &Text) {
     let path = audit_path();
     if std::fs::metadata(&path).map(|m| m.len() > AUDIT_MAX_BYTES).unwrap_or(false) {
         let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
@@ -246,7 +272,8 @@ fn write_audit(client: &str, tool: &str, args: &Value, outcome: &str, detail: &s
         shown.truncate(cut);
         shown.push('…');
     }
-    let line = json!({"ts": now_secs(), "client": client, "tool": tool, "args": shown, "outcome": outcome, "detail": detail}).to_string();
+    let line = json!({"ts": now_secs(), "client": client, "tool": tool, "args": shown, "outcome": outcome, "detail": detail.en(), "detailDe": detail.get(Lang::De)})
+        .to_string();
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "{line}");
     }
@@ -268,8 +295,15 @@ fn denied<T>(m: impl Into<String>) -> Result<T, ToolErr> {
 }
 
 /// Fehler aus der Server-Schicht: 403 heisst verweigert, alles andere gescheitert.
-fn from_route<T>(r: Result<T, (u16, String)>) -> Result<T, ToolErr> {
-    r.map_err(|(code, m)| if code == 403 { ToolErr::Denied(m) } else { ToolErr::Failed(m) })
+fn from_route<T>(r: Result<T, (u16, Text)>) -> Result<T, ToolErr> {
+    r.map_err(|(code, m)| {
+        let m = m.en().to_string();
+        if code == 403 {
+            ToolErr::Denied(m)
+        } else {
+            ToolErr::Failed(m)
+        }
+    })
 }
 
 fn human(n: u64) -> String {
@@ -411,9 +445,9 @@ impl Mcp {
                 }
             }
         };
-        let root = paths::normalize(&raw).map_err(ToolErr::Failed)?;
+        let root = paths::normalize(&raw).map_err(|e| ToolErr::Failed(e.en().to_string()))?;
         if !self.app.mode.allows(&root) {
-            return denied(server::REFUSED);
+            return denied(server::REFUSED.en());
         }
         if !visible(&root, cfg) {
             return denied(format!("The user has not made {root} visible to this server."));
@@ -462,7 +496,7 @@ impl Mcp {
     }
 
     fn rows_for_ids(&self, ids: &[u32]) -> Vec<Value> {
-        self.with_ix(|ix| Ok(ids.iter().map(|i| compact(&analysis::row(ix, *i))).collect())).unwrap_or_default()
+        self.with_ix(|ix| Ok(ids.iter().map(|i| compact(&analysis::row(ix, *i, Lang::En))).collect())).unwrap_or_default()
     }
 
     fn call(&mut self, name: &str, args: &Value, cfg: &McpConfig, cfg_error: Option<&str>) -> ToolResult {
@@ -474,7 +508,7 @@ impl Mcp {
                 "visible_roots": if cfg.roots.is_empty() { json!("all") } else { json!(cfg.roots) },
                 "config_error": cfg_error,
                 "available_tools": tools().iter().filter(|t| t.need.allowed(cfg)).map(|t| t.name).collect::<Vec<_>>(),
-                "note": "Access is set by the user in Storage Map under KI-Zugriff. It cannot be changed through this server.",
+                "note": "Access is set by the user in Storage Map under AI access. It cannot be changed through this server.",
             })),
             "list_drives" => self.list_drives(cfg),
             "get_overview" => self.overview(args, cfg),
@@ -524,7 +558,7 @@ impl Mcp {
     }
 
     fn list_drives(&self, cfg: &McpConfig) -> ToolResult {
-        let d = server::drives_json(&self.app);
+        let d = server::drives_json(&self.app, Lang::En);
         let map = |r: &Value| {
             let mut o =
                 json!({"root": r["root"], "label": r["label"], "filesystem": r["fs"], "kind": r["kind"], "media": r["media"], "ready": r["ready"]});
@@ -751,7 +785,7 @@ impl Mcp {
                 json!({"total": r["total"], "wasted_bytes": r["wasted"], "wasted": human(u(&r["wasted"])), "rows": rows, "method": "same structure, names and sizes; contents not compared"}),
             );
         }
-        let st = server::status(&self.app);
+        let st = server::status(&self.app, Lang::En);
         if st["dups"]["done"] != true {
             let hint = if cfg.allow_scan { "Call start_duplicate_search first." } else { "The user can run the duplicate search in Storage Map." };
             return Ok(json!({"searched": false, "running": st["dups"]["running"], "hint": hint}));
@@ -833,7 +867,7 @@ impl Mcp {
     }
 
     fn operation_status(&self) -> Value {
-        let st = server::status(&self.app);
+        let st = server::status(&self.app, Lang::En);
         let scan = &st["scan"];
         json!({
             "scan": if scan.is_null() { Value::Null } else { json!({"root": scan["root"], "phase": scan["phase"], "files": scan["files"], "bytes": scan["bytes"], "unreadable": scan["errors"]}) },
@@ -863,7 +897,7 @@ impl Mcp {
                 let Some(ri) = junk::rule_by_id(rule) else { return failed(format!("Unknown rule: {rule}")) };
                 let def = &junk::rules()[ri];
                 if def.risk == junk::Risk::Info || def.action != junk::Action::None {
-                    return failed(format!("Rule {rule} cannot be handled through the cleanup list: {}", def.why));
+                    return failed(format!("Rule {rule} cannot be handled through the cleanup list: {}", def.why.en()));
                 }
             }
             body["rule"] = rule.into();
@@ -925,20 +959,20 @@ impl Mcp {
 
     /// Prueft den Zielordner fuers Verschieben: nicht in Systemordner, nicht aus dem erlaubten Bereich heraus.
     fn check_target(&self, raw: &str, cfg: &McpConfig) -> Result<String, ToolErr> {
-        let t = paths::normalize(raw).map_err(ToolErr::Failed)?;
+        let t = paths::normalize(raw).map_err(|e| ToolErr::Failed(e.en().to_string()))?;
         if paths::has_dot_parts(&t) {
             return failed("The target must not contain . or .. parts.");
         }
         if let RunMode::Sandbox(sb) = &self.app.mode {
             if !paths::inside(&t, sb) {
-                return denied(server::REFUSED);
+                return denied(server::REFUSED.en());
             }
         }
         if !visible(&t, cfg) {
             return denied(format!("The user has not made {t} visible to this server."));
         }
         if let Guard::Block(why) = guard::check(&paths::join(&t, "x")) {
-            return denied(format!("Cannot move files there: {why}"));
+            return denied(format!("Cannot move files there: {}", why.en()));
         }
         Ok(t)
     }
@@ -967,7 +1001,7 @@ impl Mcp {
                 "{count} entries on {root} carry a warning. After the user has seen them, call again with acknowledge_warnings=true."
             ));
         }
-        let mut body = json!({"mode": mode, "confirm": "LÖSCHEN"});
+        let mut body = json!({"mode": mode, "confirm": "DELETE"});
         if let Some(d) = &dest {
             body["dest"] = d.clone().into();
         }
@@ -977,7 +1011,7 @@ impl Mcp {
             {
                 let mut c = self.app.cleanup.lock().unwrap();
                 if !c.running {
-                    let last = c.last.take().unwrap_or(json!({}));
+                    let last = c.last.take().map(|r| r.json(Lang::En)).unwrap_or(json!({}));
                     let failures: Vec<Value> = last["failures"]
                         .as_array()
                         .map(|a| a.iter().map(|f| json!({"path": f["path"], "reason": f["reason"]})).collect())
@@ -1022,21 +1056,25 @@ impl Mcp {
         let client = self.client.clone();
         if !def.need.allowed(&cfg.mcp) {
             let msg = match &cfg_error {
-                Some(e) => format!("The settings file is damaged, so access is off: {e}"),
-                None => def.need.denied_message().to_string(),
+                Some(e) => tr!(
+                    "The settings file is damaged, so access is off: {e}",
+                    "Die Einstellungsdatei ist beschädigt, deshalb ist der Zugriff aus: {e}"
+                ),
+                None => def.need.denied_message(),
             };
             write_audit(&client, name, args, "denied", &msg);
-            return Ok(json!({"content": [{"type": "text", "text": msg}], "isError": true}));
+            return Ok(json!({"content": [{"type": "text", "text": msg.en()}], "isError": true}));
         }
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(name, args, &cfg.mcp, cfg_error.as_deref())));
+        // Fehler stehen im Protokoll so, wie der Client sie bekommen hat.
         let (text, is_error, outcome, detail) = match res {
             Ok(Ok(v)) => {
                 let detail = audit_detail(name, &v);
                 (v.to_string(), false, "ok", detail)
             }
-            Ok(Err(ToolErr::Denied(m))) => (m.clone(), true, "denied", m),
-            Ok(Err(ToolErr::Failed(m))) => (m.clone(), true, "error", m),
-            Err(_) => ("Internal error. Please try again.".to_string(), true, "error", "panic".to_string()),
+            Ok(Err(ToolErr::Denied(m))) => (m.clone(), true, "denied", Text::same(m)),
+            Ok(Err(ToolErr::Failed(m))) => (m.clone(), true, "error", Text::same(m)),
+            Err(_) => ("Internal error. Please try again.".to_string(), true, "error", Text::same("panic")),
         };
         write_audit(&client, name, args, outcome, &detail);
         Ok(json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
@@ -1185,14 +1223,23 @@ fn negotiate(wanted: &str) -> &'static str {
     PROTOCOLS_LEGACY.iter().copied().find(|v| *v == wanted).unwrap_or(PROTOCOLS_LEGACY[0])
 }
 
-fn audit_detail(tool: &str, v: &Value) -> String {
+fn audit_detail(tool: &str, v: &Value) -> Text {
+    let size = v["size"].as_str().unwrap_or("");
+    let size_de = size.replace('.', ",");
     match tool {
-        "add_to_cleanup_list" => format!("{} added, {} on the list", u(&v["added"]), u(&v["count"])),
-        "preview_cleanup" => format!("{} entries, {}", u(&v["count"]), v["size"].as_str().unwrap_or("")),
-        "move_files" | "recycle_files" | "delete_permanently" => {
-            format!("{} done, {} failed, {}", u(&v["succeeded"]), u(&v["failed"]), v["size"].as_str().unwrap_or(""))
+        "add_to_cleanup_list" => {
+            let (added, count) = (u(&v["added"]), u(&v["count"]));
+            tr!("{added} added, {count} on the list", "{added} hinzugefügt, {count} auf der Liste")
         }
-        _ => String::new(),
+        "preview_cleanup" => {
+            let count = u(&v["count"]);
+            tr!("{count} entries, {size}", "{count} Einträge, {size_de}")
+        }
+        "move_files" | "recycle_files" | "delete_permanently" => {
+            let (done, bad) = (u(&v["succeeded"]), u(&v["failed"]));
+            tr!("{done} done, {bad} failed, {size}", "{done} erledigt, {bad} fehlgeschlagen, {size_de}")
+        }
+        _ => Text::new("", ""),
     }
 }
 

@@ -382,7 +382,7 @@ fn scans_need_their_own_permission() {
     // Ausserhalb des Testordners wird nicht gescannt.
     let foreign = if cfg!(windows) { r"C:\" } else { "/" };
     let e = c.err("start_scan", json!({"root": foreign}));
-    assert!(e.contains("Testordner"), "{e}");
+    assert!(e.contains("test folder"), "{e}");
 }
 
 #[test]
@@ -430,7 +430,7 @@ fn write_level_edits_the_list_and_moves_but_never_deletes() {
     let id = plan["plan_id"].as_str().unwrap().to_string();
 
     let foreign = if cfg!(windows) { r"C:\" } else { "/tmp" };
-    assert!(c.err("move_files", json!({"plan_id": id, "target_dir": foreign})).contains("Testordner"));
+    assert!(c.err("move_files", json!({"plan_id": id, "target_dir": foreign})).contains("test folder"));
     let dots = format!("{}{}..", s.path(&["Ziel"]), std::path::MAIN_SEPARATOR);
     assert!(c.err("move_files", json!({"plan_id": id, "target_dir": dots})).contains(".."));
 
@@ -476,7 +476,7 @@ fn delete_level_goes_through_plan_and_recycle_bin() {
     let r = c.ok("recycle_files", json!({"plan_id": id}));
     assert_eq!(r["succeeded"], 1, "{r}");
     assert_eq!(r["failed"], 1, "{r}");
-    assert!(r["failures"][0]["reason"].as_str().unwrap().contains("geändert"), "{r}");
+    assert!(r["failures"][0]["reason"].as_str().unwrap().contains("changed"), "{r}");
     assert!(s.fx.join("Daten").join("wichtig.xlsx").exists());
     assert!(!s.fx.join("Daten").join("absturz.dmp").exists());
     assert!(
@@ -540,9 +540,9 @@ fn demo_mode_protects_system_paths_and_warns() {
     c.initialize();
 
     let (root, system, warned, target_bad, doc) = if cfg!(windows) {
-        (r"C:\", r"C:\Windows\System32\sys00001.dll", r"C:\Program Files\Bildstudio\bin", r"C:\Windows", r"C:\Users\Demo\Downloads\aktuell.pdf")
+        (r"C:\", r"C:\Windows\System32\sys00001.dll", r"C:\Program Files\ImageBench\bin", r"C:\Windows", r"C:\Users\Demo\Downloads\current.pdf")
     } else {
-        ("/", "/usr/lib/sys00001.so", "/opt/schnittplatz", "/usr/lib", "/home/demo/Downloads/aktuell.pdf")
+        ("/", "/usr/lib/sys00001.so", "/opt/cutbench", "/usr/lib", "/home/demo/Downloads/current.pdf")
     };
     let d = c.ok("list_drives", json!({}));
     assert!(d["drives"].as_array().unwrap().iter().all(|x| x["label"].as_str().unwrap().starts_with("DEMO")), "{d}");
@@ -553,6 +553,17 @@ fn demo_mode_protects_system_paths_and_warns() {
     assert_eq!(r["protected_and_refused"].as_array().unwrap().len(), 1, "{r}");
     let i = c.ok("get_item", json!({"root": root, "path": system}));
     assert!(i["protected"].is_string(), "{i}");
+    // Alles, was der Client liest, ist Englisch.
+    assert!(i["protected"].as_str().unwrap().contains("could damage"), "{i}");
+    assert!(r["protected_and_refused"][0]["why"].as_str().unwrap().contains("could damage"), "{r}");
+    let umlaut = |v: &Value| v.to_string().contains(['ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß']);
+    let tips = c.ok("get_cleanup_suggestions", json!({"root": root}));
+    assert!(tips["rules"].as_array().unwrap().len() > 5, "{tips}");
+    assert!(!umlaut(&tips), "{tips}");
+    let sum = c.ok("get_overview", json!({"root": root}));
+    assert!(!umlaut(&sum["suggestions"]), "{sum}");
+    let instructions = c.request("server/discover", json!({}));
+    assert!(!instructions.to_string().contains("German"), "{instructions}");
     // Regeln, die nur informieren, lassen sich nicht abarbeiten.
     assert!(c.err("add_to_cleanup_list", json!({"root": root, "rule": "journal"})).contains("cannot be handled"));
 
@@ -572,7 +583,7 @@ fn demo_mode_protects_system_paths_and_warns() {
 
     // Echte Pfade ausserhalb der Demo gibt es nicht.
     let foreign = if cfg!(windows) { r"D:\" } else { "/etc" };
-    assert!(c.err("get_overview", json!({"root": foreign})).contains("Testordner"));
+    assert!(c.err("get_overview", json!({"root": foreign})).contains("test folder"));
     drop(c);
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -705,11 +716,17 @@ fn window_sets_the_rights_with_explicit_confirmation() {
     assert_eq!(set(json!({"level": "write"})).0, 400);
     assert_eq!(set(json!({"level": "delete"})).0, 400);
     assert_eq!(set(json!({"level": "delete", "confirm": "SCHREIBEN"})).0, 400);
+    assert_eq!(set(json!({"level": "delete", "confirm": "WRITE"})).0, 400);
     assert_eq!(set(json!({"level": "alles"})).0, 400);
     assert_eq!(http(&g, "GET", "/api/mcp", "").1["config"]["level"], "read", "Abgelehntes aendert nichts");
 
+    // Die Bestaetigungswoerter gelten in beiden Sprachen.
     assert_eq!(set(json!({"level": "write", "confirm": "SCHREIBEN"})).0, 200);
+    assert_eq!(set(json!({"level": "read"})).0, 200);
+    assert_eq!(set(json!({"level": "write", "confirm": "WRITE"})).0, 200);
     assert_eq!(set(json!({"level": "delete", "confirm": "LÖSCHEN"})).0, 200);
+    assert_eq!(set(json!({"level": "read"})).0, 200);
+    assert_eq!(set(json!({"level": "delete", "confirm": "DELETE"})).0, 200);
     assert_eq!(set(json!({"allowPermanent": true})).0, 400);
     assert_eq!(set(json!({"allowPermanent": true, "confirm": "LÖSCHEN"})).0, 200);
     assert_eq!(http(&g, "GET", "/api/mcp", "").1["config"]["allow_permanent_delete"], true);
@@ -728,5 +745,13 @@ fn window_sets_the_rights_with_explicit_confirmation() {
     c.ok("list_drives", json!({}));
     let log = http(&g, "GET", "/api/mcp/audit", "").1;
     assert_eq!(log["rows"][0]["tool"], "list_drives", "{log}");
+
+    // Das Protokoll zeigt die Sprache der Oberflaeche, der Client bekommt Englisch.
+    let denied = c.err("add_to_cleanup_list", json!({"paths": []}));
+    assert!(denied.contains("AI access"), "{denied}");
+    let log = http(&g, "GET", "/api/mcp/audit", "").1;
+    assert!(log["rows"][0]["detail"].as_str().unwrap().contains("AI access"), "{log}");
+    let log = http(&g, "GET", "/api/mcp/audit?lang=de", "").1;
+    assert!(log["rows"][0]["detail"].as_str().unwrap().contains("KI-Zugriff"), "{log}");
     assert_eq!(http(&g, "GET", "/api/status", "").1["mcpLevel"], "read");
 }

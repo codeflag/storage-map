@@ -1,11 +1,27 @@
 //! Ordnet Dateiendungen genau einer Kategorie zu. Acht Kategorien plus "Sonstige":
 //! mehr Farben kann man in einer Karte nicht mehr auseinanderhalten.
 
+use crate::i18n::{Lang, Text};
+
 pub const COUNT: usize = 9;
 pub const OTHER: u8 = 8;
 
-pub const NAMES: [&str; COUNT] =
-    ["Videos", "Bilder", "Audio", "Dokumente", "Archive & Abbilder", "Programme & Spiele", "Entwicklung & Daten", "System & Temp", "Sonstige"];
+/// Dieselben Namen stehen fuer die Oberflaeche in `ui/js/i18n.js`. Ein Test in `assets.rs` prueft, dass sie gleich bleiben.
+pub static NAMES: [Text; COUNT] = [
+    Text::new("Videos", "Videos"),
+    Text::new("Images", "Bilder"),
+    Text::new("Audio", "Audio"),
+    Text::new("Documents", "Dokumente"),
+    Text::new("Archives & disk images", "Archive & Abbilder"),
+    Text::new("Programs & games", "Programme & Spiele"),
+    Text::new("Development & data", "Entwicklung & Daten"),
+    Text::new("System & temp", "System & Temp"),
+    Text::new("Other", "Sonstige"),
+];
+
+pub fn names(lang: Lang) -> Vec<&'static str> {
+    NAMES.iter().map(|n| n.get(lang)).collect()
+}
 
 /// Feste Kennungen fuer Schnittstellen. Die Namen oben sind fuer Menschen und koennen sich aendern.
 pub const SLUGS: [&str; COUNT] = ["video", "image", "audio", "document", "archive", "program", "development", "system", "other"];
@@ -219,22 +235,28 @@ mod tests {
 
     #[test]
     fn ts_is_code_unless_it_is_huge() {
-        assert_eq!(NAMES[classify_sized("ts", 3_000) as usize], "Entwicklung & Daten");
-        assert_eq!(NAMES[classify_sized("ts", 2_000_000_000) as usize], "Videos");
-        assert_eq!(NAMES[classify_sized("mkv", 10) as usize], "Videos");
+        assert_eq!(SLUGS[classify_sized("ts", 3_000) as usize], "development");
+        assert_eq!(SLUGS[classify_sized("ts", 2_000_000_000) as usize], "video");
+        assert_eq!(SLUGS[classify_sized("mkv", 10) as usize], "video");
     }
 
     #[test]
     fn classifies_common_types() {
-        assert_eq!(NAMES[classify("mkv") as usize], "Videos");
-        assert_eq!(NAMES[classify("heic") as usize], "Bilder");
-        assert_eq!(NAMES[classify("flac") as usize], "Audio");
-        assert_eq!(NAMES[classify("pdf") as usize], "Dokumente");
-        assert_eq!(NAMES[classify("vhdx") as usize], "Archive & Abbilder");
-        assert_eq!(NAMES[classify("exe") as usize], "Programme & Spiele");
-        assert_eq!(NAMES[classify("safetensors") as usize], "Entwicklung & Daten");
-        assert_eq!(NAMES[classify("log") as usize], "System & Temp");
+        assert_eq!(SLUGS[classify("mkv") as usize], "video");
+        assert_eq!(SLUGS[classify("heic") as usize], "image");
+        assert_eq!(SLUGS[classify("flac") as usize], "audio");
+        assert_eq!(SLUGS[classify("pdf") as usize], "document");
+        assert_eq!(SLUGS[classify("vhdx") as usize], "archive");
+        assert_eq!(SLUGS[classify("exe") as usize], "program");
+        assert_eq!(SLUGS[classify("safetensors") as usize], "development");
+        assert_eq!(SLUGS[classify("log") as usize], "system");
         assert_eq!(classify("voellig-unbekannt"), OTHER);
+    }
+
+    #[test]
+    fn names_exist_in_both_languages() {
+        assert_eq!(names(Lang::En)[1], "Images");
+        assert_eq!(names(Lang::De)[1], "Bilder");
     }
 
     #[test]

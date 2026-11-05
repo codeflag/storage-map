@@ -1,6 +1,8 @@
 //! Pfadlogik fuer Windows- und Linux-Pfade. Welche Welt gemeint ist, verraet der Pfad selbst:
 //! Linux-Pfade beginnen mit `/`. So laufen die Tests beider Welten auf jedem System.
 
+use crate::i18n::Text;
+
 pub fn is_unix_style(path: &str) -> bool {
     path.starts_with('/')
 }
@@ -67,14 +69,15 @@ pub fn inside(path: &str, root: &str) -> bool {
     p == r || p.starts_with(&format!("{r}{sep}"))
 }
 
-const WINDOWS_HINT: &str = "Bitte einen vollständigen Pfad angeben, z. B. D:\\Daten";
-const UNIX_HINT: &str = "Bitte einen vollständigen Pfad angeben, z. B. /mnt/daten";
+const WINDOWS_HINT: Text = Text::new("Please enter a full path, for example D:\\Data", "Bitte einen vollständigen Pfad angeben, z. B. D:\\Daten");
+const UNIX_HINT: Text = Text::new("Please enter a full path, for example /mnt/data", "Bitte einen vollständigen Pfad angeben, z. B. /mnt/daten");
+const NO_PATH: Text = Text::new("No path given.", "Kein Pfad angegeben.");
 
 /// `c:` wird `C:\`, abschliessende Trenner fallen weg.
-pub fn normalize_windows(raw: &str) -> Result<String, String> {
+pub fn normalize_windows(raw: &str) -> Result<String, Text> {
     let t = raw.trim().trim_matches('"').replace('/', "\\");
     if t.is_empty() {
-        return Err("Kein Pfad angegeben.".into());
+        return Err(NO_PATH);
     }
     let b = t.as_bytes();
     if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
@@ -84,30 +87,30 @@ pub fn normalize_windows(raw: &str) -> Result<String, String> {
             return Ok(format!("{drive}:\\"));
         }
         if !rest.starts_with('\\') {
-            return Err(WINDOWS_HINT.into());
+            return Err(WINDOWS_HINT);
         }
         return Ok(format!("{drive}:{rest}"));
     }
     if t.starts_with(r"\\") {
         return Ok(t.trim_end_matches('\\').to_string());
     }
-    Err(WINDOWS_HINT.into())
+    Err(WINDOWS_HINT)
 }
 
 /// Doppelte und abschliessende `/` fallen weg. Nur absolute Pfade sind erlaubt.
-pub fn normalize_unix(raw: &str) -> Result<String, String> {
+pub fn normalize_unix(raw: &str) -> Result<String, Text> {
     let t = raw.trim().trim_matches('"');
     if t.is_empty() {
-        return Err("Kein Pfad angegeben.".into());
+        return Err(NO_PATH);
     }
     if !t.starts_with('/') {
-        return Err(UNIX_HINT.into());
+        return Err(UNIX_HINT);
     }
     let parts: Vec<&str> = t.split('/').filter(|c| !c.is_empty()).collect();
     Ok(format!("/{}", parts.join("/")))
 }
 
-pub fn normalize(raw: &str) -> Result<String, String> {
+pub fn normalize(raw: &str) -> Result<String, Text> {
     if cfg!(windows) {
         normalize_windows(raw)
     } else {

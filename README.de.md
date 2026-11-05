@@ -14,7 +14,9 @@ Storage Map zeigt, womit ein Laufwerk gefüllt ist, und hilft beim Aufräumen. E
 
 ![Speicherkarte eines Laufwerks](docs/img/map.png)
 
-*Alle Bilder stammen aus der eingebauten Demo mit erfundenen Dateien.*
+*Alle Bilder stammen aus der eingebauten Demo mit erfundenen Dateien und zeigen die englische Oberfläche.*
+
+Die Oberfläche gibt es auf Deutsch und Englisch. Sie folgt der Browsersprache und lässt sich in der Kopfzeile umschalten. Die MCP-Schnittstelle und die Kommandozeile sind auf Englisch.
 
 ## Herunterladen
 
