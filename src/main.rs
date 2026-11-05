@@ -67,7 +67,8 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args { demo_scale: 1, ..Default::default() };
-    let mut it = std::env::args().skip(1);
+    // args() wuerde bei Pfaden abstuerzen, die unter Linux kein gueltiges UTF-8 sind.
+    let mut it = std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned());
     while let Some(x) = it.next() {
         match x.as_str() {
             "--no-open" => a.no_open = true,

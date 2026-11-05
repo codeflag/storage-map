@@ -37,7 +37,7 @@ jobs:
         run: |
           base="${GITHUB_REF_NAME#v}"
           base="${base%%-*}"
-          awk -v v="$base" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} /^\[.*\]: / {on=0} on' CHANGELOG.md > notes.md
+          awk -v v="$base" 'index($0, "## [" v "]") == 1 {on=1; next} index($0, "## [") == 1 {on=0} index($0, "[") == 1 && index($0, "]: ") > 0 {on=0} on' CHANGELOG.md > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then
             echo "::error::CHANGELOG.md has no section for $base"
             exit 1

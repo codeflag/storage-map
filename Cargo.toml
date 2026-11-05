@@ -1,6 +1,6 @@
 [package]
 name = "storage-map"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 edition = "2021"
 rust-version = "1.85"
 resolver = "3"
@@ -10,6 +10,7 @@ repository = "https://github.com/codeflag/storage-map"
 readme = "README.md"
 keywords = ["disk-usage", "treemap", "duplicates", "cleanup", "mcp"]
 categories = ["filesystem", "visualization"]
+publish = false
 build = "build.rs"
 include = ["src/**", "ui/**", "assets/**", "packaging/**", "tests/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "CHANGELOG.md"]
 
