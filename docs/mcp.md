@@ -4,7 +4,7 @@
 
 ## Setup
 
-The **KI-Zugriff** view shows these snippets with the correct path filled in.
+The **KI-Zugriff** view shows these snippets with the correct path filled in. On Windows the program is called `StorageMap.exe`.
 
 Claude Desktop, Cursor and similar clients:
 

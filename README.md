@@ -28,13 +28,15 @@ Get the latest version from the [releases page](https://github.com/codeflag/stor
 | Linux, x86-64 | `storage-map-VERSION-linux-x86_64.tar.gz`, `.deb` or `.rpm` |
 | Linux, ARM64 | `storage-map-VERSION-linux-aarch64.tar.gz`, `.deb` or `.rpm` |
 
+On Windows the program is called `StorageMap.exe`, on Linux `storage-map`. Commands in this documentation use the Linux name.
+
 The Linux builds are statically linked and work on any distribution. `SHA256SUMS` lists the checksums of all files.
 
 Windows builds are not code-signed, so SmartScreen may warn on first start. The window needs Edge, Chrome or another Chromium browser. Without one, Storage Map opens in your default browser.
 
 ## Start
 
-Run `storage-map`, pick a drive and click **Scannen**. The scan reads names, sizes and dates. Files are only read during a duplicate search, and nothing is removed until you confirm it.
+Start `StorageMap.exe` or `storage-map`, pick a drive and click **Scannen**. The scan reads names, sizes and dates. Files are only read during a duplicate search, and nothing is removed until you confirm it.
 
 ## Views
 

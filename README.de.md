@@ -26,13 +26,15 @@ Die aktuelle Version liegt auf der [Release-Seite](https://github.com/codeflag/s
 | Linux, x86-64 | `storage-map-VERSION-linux-x86_64.tar.gz`, `.deb` oder `.rpm` |
 | Linux, ARM64 | `storage-map-VERSION-linux-aarch64.tar.gz`, `.deb` oder `.rpm` |
 
+Unter Windows heißt das Programm `StorageMap.exe`, unter Linux `storage-map`. Befehle in dieser Anleitung nutzen den Linux-Namen.
+
 Die Linux-Fassungen sind statisch gelinkt und laufen auf jeder Distribution. `SHA256SUMS` enthält die Prüfsummen aller Dateien.
 
 Die Windows-Fassung ist nicht signiert, SmartScreen kann deshalb beim ersten Start warnen. Für das eigene Fenster braucht das Programm Edge, Chrome oder einen anderen Chromium-Browser. Ohne einen davon öffnet es sich im Standardbrowser.
 
 ## Starten
 
-`storage-map` starten, Laufwerk wählen und **Scannen** klicken. Der Scan liest Namen, Größen und Datumsangaben. Dateien selbst werden nur bei der Duplikat-Suche gelesen, und entfernt wird nur, was du bestätigst.
+`StorageMap.exe` oder `storage-map` starten, Laufwerk wählen und **Scannen** klicken. Der Scan liest Namen, Größen und Datumsangaben. Dateien selbst werden nur bei der Duplikat-Suche gelesen, und entfernt wird nur, was du bestätigst.
 
 ## Ansichten
 

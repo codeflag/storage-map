@@ -68,15 +68,18 @@ jobs:
           # Keine Pfade des Build-Rechners im Programm.
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/storage-map
         run: cargo build --locked --release
-      - name: Smoke test
+      # Cargo kennt nur einen Namen je Programm. Unter Linux ist Kleinschreibung ueblich, unter Windows nicht.
+      - name: Smoke test under the Windows name
         shell: bash
-        run: bash scripts/smoke.sh target/release/storage-map.exe "$VERSION"
+        run: |
+          cp target/release/storage-map.exe StorageMap.exe
+          bash scripts/smoke.sh ./StorageMap.exe "$VERSION"
       - name: Package
         shell: pwsh
         run: |
           $name = "storage-map-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "out/$name" | Out-Null
-          Copy-Item target/release/storage-map.exe, README.md, LICENSE, THIRD_PARTY_LICENSES.md "out/$name"
+          Copy-Item StorageMap.exe, README.md, LICENSE, THIRD_PARTY_LICENSES.md "out/$name"
           Compress-Archive -Path "out/$name" -DestinationPath "dist-$name.zip"
           New-Item -ItemType Directory -Force dist | Out-Null
           Move-Item "dist-$name.zip" "dist/$name.zip"
