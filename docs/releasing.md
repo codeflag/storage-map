@@ -18,7 +18,7 @@ The `Release` workflow then builds all packages, tests each of them on a clean s
 
 | Target | Files | Tested on |
 |---|---|---|
-| Windows x86-64 | `.zip` | Windows runner |
+| Windows x86-64 | `StorageMap.exe`, `.zip` | Windows runner |
 | Linux x86-64 | `.tar.gz`, `.deb`, `.rpm` | Ubuntu, Debian, Fedora, Alpine |
 | Linux ARM64 | `.tar.gz`, `.deb`, `.rpm` | Emulated with QEMU |
 

@@ -83,6 +83,7 @@ jobs:
           Compress-Archive -Path "out/$name" -DestinationPath "dist-$name.zip"
           New-Item -ItemType Directory -Force dist | Out-Null
           Move-Item "dist-$name.zip" "dist/$name.zip"
+          Copy-Item StorageMap.exe dist/StorageMap.exe
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-windows

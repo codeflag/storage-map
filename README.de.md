@@ -1,5 +1,7 @@
 # Storage Map
 
+<div align="center">
+
 [![CI](https://github.com/codeflag/storage-map/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/codeflag/storage-map/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/codeflag/storage-map)](https://github.com/codeflag/storage-map/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/codeflag/storage-map/total)](https://github.com/codeflag/storage-map/releases)
@@ -8,6 +10,8 @@
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange)](CONTRIBUTING.md)
 [![MCP server](https://img.shields.io/badge/MCP-server-8A2BE2)](docs/mcp.md)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/codeflag)
+
+</div>
 
 [English version](README.md)
 
@@ -25,7 +29,7 @@ Die aktuelle Version liegt auf der [Release-Seite](https://github.com/codeflag/s
 
 | System | Datei |
 |---|---|
-| Windows 10/11, x86-64 | `storage-map-VERSION-windows-x86_64.zip` |
+| Windows 10/11, x86-64 | `StorageMap.exe`, oder `storage-map-VERSION-windows-x86_64.zip` mit Lizenzdateien |
 | Linux, x86-64 | `storage-map-VERSION-linux-x86_64.tar.gz`, `.deb` oder `.rpm` |
 | Linux, ARM64 | `storage-map-VERSION-linux-aarch64.tar.gz`, `.deb` oder `.rpm` |
 
@@ -110,9 +114,11 @@ Legt einen Testordner mit bekanntem Inhalt an (etwa 80 MB) und prüft damit den 
 
 Storage Map ist kostenlos und quelloffen. Wenn es dir ein paar Gigabyte zurückgeholt hat, freue ich mich über einen Kaffee. Das ist ganz dir überlassen: Über einen Fehlerbericht oder ein nettes Wort freue ich mich genauso. Danke fürs Ausprobieren!
 
-<a href="https://buymeacoffee.com/codeflag"><img src="docs/img/buymeacoffee-qr.png" alt="QR-Code für buymeacoffee.com/codeflag" width="160"></a>
-
-[buymeacoffee.com/codeflag](https://buymeacoffee.com/codeflag)
+<p align="center">
+  <a href="https://buymeacoffee.com/codeflag"><img src="docs/img/buymeacoffee-qr.png" alt="QR-Code für buymeacoffee.com/codeflag" width="160"></a>
+  <br>
+  <a href="https://buymeacoffee.com/codeflag">buymeacoffee.com/codeflag</a>
+</p>
 
 ## Bauen und Lizenz
 
